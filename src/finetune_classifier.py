@@ -102,7 +102,7 @@ def build_model(args, ctx):
     do_lower_case = 'uncased' in dataset
     tokenizer = FullTokenizer(vocabulary, do_lower_case=do_lower_case)
 
-    logger.info(model)
+    logger.debug(model)
     return model, vocabulary, tokenizer
 
 def dump_vocab(outdir, vocab):

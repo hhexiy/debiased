@@ -405,12 +405,8 @@ class SNLIDataset(GLUEDataset):
         self._supported_segments = ['train', 'dev', 'test']
         assert segment in self._supported_segments, 'Unsupported segment: %s' % segment
         path = os.path.join(root, '%s.tsv' % segment)
-        if segment in ['train', 'dev']:
-            A_IDX, B_IDX, LABEL_IDX = 7, 8, 14
-            fields = [A_IDX, B_IDX, LABEL_IDX]
-        elif segment == 'test':
-            A_IDX, B_IDX = 7, 8
-            fields = [A_IDX, B_IDX]
+        A_IDX, B_IDX, LABEL_IDX = 7, 8, 14
+        fields = [A_IDX, B_IDX, LABEL_IDX]
         super(SNLIDataset, self).__init__(
             path, num_discard_samples=1, fields=fields)
 

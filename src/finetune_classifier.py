@@ -42,36 +42,24 @@ import logging
 import warnings
 import json
 import numpy as np
+import pickle as pkl
 
 import mxnet as mx
 from mxnet import gluon
 import gluonnlp as nlp
-from gluonnlp.model import bert_12_768_12
 
 from .bert import BERTClassifier, BERTRegression
-from .tokenizer import FullTokenizer
 from .dataset import MRPCDataset, QQPDataset, RTEDataset, \
-    STSBDataset, ClassificationTransform, RegressionTransform, SNLISuperficialTransform, \
+    STSBDataset, ClassificationTransform, RegressionTransform, SNLISuperficialTransform, AdditiveTransform, SNLICheatTransform, \
     QNLIDataset, COLADataset, SNLIDataset, MNLIDataset, WNLIDataset, SSTDataset
 from .options import add_default_arguments, add_data_arguments, add_logging_arguments, \
     add_model_arguments, add_training_arguments
 from .utils import logging_config, get_dir, metric_to_list
-
+from .model_builder import build_model, load_model
+from .task import tasks
 
 logger = logging.getLogger('nli')
 
-tasks = {
-    'MRPC': MRPCDataset,
-    'QQP': QQPDataset,
-    'QNLI': QNLIDataset,
-    'RTE': RTEDataset,
-    'STS-B': STSBDataset,
-    'CoLA': COLADataset,
-    'MNLI': MNLIDataset,
-    'SNLI': SNLIDataset,
-    'WNLI': WNLIDataset,
-    'SST': SSTDataset
-}
 
 def parse_args():
     """
@@ -85,26 +73,6 @@ def parse_args():
     add_training_arguments(parser)
     return parser.parse_args()
 
-def build_model(args, ctx):
-    dataset = 'book_corpus_wiki_en_uncased'
-    bert, vocabulary = bert_12_768_12(
-        dataset_name=dataset,
-        pretrained=True,
-        ctx=ctx,
-        use_pooler=True,
-        use_decoder=False,
-        use_classifier=False)
-
-    task_name = args.task_name
-    num_classes = len(tasks[task_name].get_labels())
-    model = BERTClassifier(bert, num_classes=num_classes, dropout=args.dropout)
-
-    do_lower_case = 'uncased' in dataset
-    tokenizer = FullTokenizer(vocabulary, do_lower_case=do_lower_case)
-
-    logger.debug(model)
-    return model, vocabulary, tokenizer
-
 def dump_vocab(outdir, vocab):
     vocab_path = os.path.join(outdir, 'vocab.jsons')
     with open(vocab_path, 'w') as fout:
@@ -113,21 +81,32 @@ def dump_vocab(outdir, vocab):
 def build_data_loader(args, task, split, batch_size, tokenizer, test=False):
     max_len = args.max_len
 
+    sup_trans = SNLISuperficialTransform(
+        tokenizer, task.get_labels(), max_len, pad=False)
+    all_trans = ClassificationTransform(
+        tokenizer, task.get_labels(), max_len, pad=False, pair=True)
+    cheat_trans = SNLICheatTransform(task.get_labels(), percent=0.99)
+
     if args.superficial:
-        trans = SNLISuperficialTransform(
-            tokenizer, task.get_labels(), max_len, pad=False)
+        trans = sup_trans
+    elif 'additive' in vars(args) and args.additive:
+        trans = AdditiveTransform([sup_trans, all_trans], use_length=1)
     else:
-        trans = ClassificationTransform(
-            tokenizer, task.get_labels(), max_len, pad=False, pair=True)
+        trans = all_trans
 
-    dataset = task(split).transform(trans, lazy=False)
+    if not test:
+        print('cheating')
+        dataset = task(split).transform(cheat_trans)
+    else:
+        dataset = task(split)
+    dataset = dataset.transform(trans, lazy=False)
     num_samples = len(dataset)
-    data_lengths = dataset.transform(
-        lambda input_id, length, segment_id, label_id: length)
+    data_lengths = dataset.transform(trans.get_length)
 
-    batchify_fn = nlp.data.batchify.Tuple(
-        nlp.data.batchify.Pad(axis=0), nlp.data.batchify.Stack(),
-        nlp.data.batchify.Pad(axis=0), nlp.data.batchify.Stack())
+    #batchify_fn = nlp.data.batchify.Tuple(
+    #    nlp.data.batchify.Pad(axis=0), nlp.data.batchify.Stack(),
+    #    nlp.data.batchify.Pad(axis=0), nlp.data.batchify.Stack())
+    batchify_fn = trans.get_batcher()
     batch_sampler = nlp.data.FixedBucketSampler(lengths=data_lengths,
                                                 batch_size=batch_size,
                                                 num_buckets=10,
@@ -144,21 +123,34 @@ def evaluate(data_loader, model, loss_function, metric, ctx):
     """
     loss = 0
     metric.reset()
+    preds = []
+    labels = []
     for _, seqs in enumerate(data_loader):
         Ls = []
-        input_ids, valid_len, type_ids, label = seqs
-        out = model(
-            input_ids.as_in_context(ctx), type_ids.as_in_context(ctx),
-            valid_len.astype('float32').as_in_context(ctx))
-        loss += loss_function(out, label.as_in_context(ctx)).mean().asscalar()
+        #input_ids, valid_len, type_ids, label = seqs
+        #out = model(
+        #    input_ids.as_in_context(ctx), type_ids.as_in_context(ctx),
+        #    valid_len.astype('float32').as_in_context(ctx))
+        inputs, label = model.prepare_data(seqs, ctx)
+        out = model(*inputs)
+        _preds = mx.ndarray.argmax(out, axis=1)
+        preds.extend(_preds.asnumpy().astype('int32'))
+        labels.extend(label[:,0].asnumpy())
+        #print(preds)
+        #print(labels)
+        #import sys; sys.exit()
+        #print(out.shape)
+        #print(out[0])
+        #loss += loss_function(out, label.as_in_context(ctx)).mean().asscalar()
+        loss += loss_function(out, label).mean().asscalar()
         metric.update([label], [out])
     loss /= len(data_loader)
-    return loss, metric
+    return loss, metric, preds, labels
 
 
 def train(args, model, train_data, dev_data, num_train_examples, ctx):
     task = tasks[args.task_name]
-    model.classifier.initialize(init=mx.init.Normal(0.02), ctx=ctx)
+    model.initialize(init=mx.init.Normal(0.02), ctx=ctx, force_reinit=False)
     loss_function = gluon.loss.SoftmaxCELoss()
     metric = task.get_metric()
 
@@ -167,7 +159,7 @@ def train(args, model, train_data, dev_data, num_train_examples, ctx):
 
     lr = args.lr
     optimizer_params_w = {'learning_rate': lr, 'epsilon': 1e-6, 'wd': 0.01}
-    optimizer_params_b = {'learning_rate': lr, 'epsilon': 1e-6, 'wd': 0.0}
+    optimizer_params_b = {'learning_rate': lr, 'epsilon': 1e-6, 'wd': 0.01}
     try:
         trainer_w = gluon.Trainer(
             model.collect_params('.*weight'),
@@ -224,11 +216,14 @@ def train(args, model, train_data, dev_data, num_train_examples, ctx):
             trainer_b.set_learning_rate(new_lr)
             # forward and backward
             with mx.autograd.record():
-                input_ids, valid_length, type_ids, label = seqs
-                out = model(
-                    input_ids.as_in_context(ctx), type_ids.as_in_context(ctx),
-                    valid_length.astype('float32').as_in_context(ctx))
-                ls = loss_function(out, label.as_in_context(ctx)).mean()
+                #input_ids, valid_length, type_ids, label = seqs
+                #out = model(
+                #    input_ids.as_in_context(ctx), type_ids.as_in_context(ctx),
+                #    valid_length.astype('float32').as_in_context(ctx))
+                inputs, label = model.prepare_data(seqs, ctx)
+                out = model(*inputs)
+                #ls = loss_function(out, label.as_in_context(ctx)).mean()
+                ls = loss_function(out, label).mean()
             ls.backward()
             # update
             trainer_w.allreduce_grads()
@@ -236,6 +231,7 @@ def train(args, model, train_data, dev_data, num_train_examples, ctx):
             nlp.utils.clip_grad_global_norm(params, 1)
             trainer_w.update(1)
             trainer_b.update(1)
+            #model.print_grad(ctx)
             step_loss += ls.asscalar()
             metric.update([label], [out])
             if (batch_id + 1) % (args.log_interval) == 0:
@@ -251,7 +247,7 @@ def train(args, model, train_data, dev_data, num_train_examples, ctx):
                 step_loss = 0
         mx.nd.waitall()
 
-        dev_loss, dev_metric = evaluate(dev_data, model, loss_function, metric, ctx)
+        dev_loss, dev_metric, _, _ = evaluate(dev_data, model, loss_function, metric, ctx)
         metric_names, metric_vals = metric_to_list(dev_metric)
         if dev_loss < best_dev_loss:
             best_dev_loss = dev_loss
@@ -294,16 +290,14 @@ def main(args):
     else:
         model_args = argparse.Namespace(**json.load(
             open(os.path.join(args.init_from, 'config.json'))))
-        model, _, tokenizer = build_model(model_args, ctx)
-        params_file = 'last.params' if args.use_last else 'valid_best.params'
-        model.load_parameters(os.path.join(
-            args.init_from, 'checkpoints', params_file), ctx=ctx)
-        vocab = nlp.Vocab.from_json(
-            open(os.path.join(args.init_from, 'vocab.jsons')).read())
-        test_data, _ = build_data_loader(args, task, args.test_split, args.eval_batch_size, tokenizer, test=True)
+        model, vocab, tokenizer = load_model(args, model_args, args.init_from, ctx)
+        test_data, num_examples = build_data_loader(model_args, task, args.test_split, args.eval_batch_size, tokenizer, test=True)
+        print('num examples:', num_examples)
         loss_function = gluon.loss.SoftmaxCELoss()
         loss_function.hybridize(static_alloc=True)
-        loss, metric = evaluate(test_data, model, loss_function, task.get_metric(), ctx)
+        loss, metric, preds, labels = evaluate(test_data, model, loss_function, task.get_metric(), ctx)
+        pkl.dump(preds, open(os.path.join(outdir, 'preds.pkl'), 'wb'))
+        pkl.dump(labels, open(os.path.join(outdir, 'labels.pkl'), 'wb'))
         metric_names, metric_vals = metric_to_list(metric)
         logger.info(('loss={:.4f}, metrics=' + \
                      ','.join([i + ':{:.4f}' for i in metric_names]))

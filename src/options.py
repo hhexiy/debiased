@@ -18,12 +18,18 @@ def add_data_arguments(parser):
                         help='test data split name')
     group.add_argument('--superficial', action='store_true',
                         help='only use superficial features')
+    group.add_argument('--additive',
+                        help='path to models to be added to the additive model')
+    group.add_argument('--cheat', type=float, default=0.,
+                        help='percentage of training data using cheating feature')
     group.add_argument('--task-name', required=True,
                         help='The name of the task to fine-tune.(MRPC,...)')
+    group.add_argument('--max-num-examples', type=int, default=-1,
+                        help='maximum number of examples to read, -1 means all.')
 
 def add_logging_arguments(parser):
     group = parser.add_argument_group('Logging')
-    group.add_argument('--exp-id', default='00',
+    group.add_argument('--exp-id', default=None,
                         help='experiment ID')
     group.add_argument('--output-dir', default='.',
                         help='output directory')
@@ -55,8 +61,6 @@ def add_model_arguments(parser):
 
 def add_training_arguments(parser):
     group = parser.add_argument_group('Training')
-    group.add_argument('--max-num-examples', type=int, default=-1,
-                        help='maximum number of examples to load (for debugging)')
     group.add_argument('--batch-size', type=int, default=32,
                         help='batch size')
     group.add_argument('--eval-batch-size', type=int, default=128,

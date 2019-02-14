@@ -102,6 +102,9 @@ class BERTClassifier(Block):
                 self.classifier.add(nn.Dropout(rate=dropout))
             self.classifier.add(nn.Dense(units=num_classes))
 
+    def initialize(self, **kwargs):
+        self.classifier.initialize(**kwargs)
+
     def forward(self, inputs, token_types, valid_length=None): # pylint: disable=arguments-differ
         """Generate the unnormalized score for the given the input sequences.
 

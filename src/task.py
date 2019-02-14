@@ -1,5 +1,17 @@
-class Task(object):
-    pass
+from .dataset import MRPCDataset, QQPDataset, RTEDataset, \
+    STSBDataset, \
+    QNLIDataset, COLADataset, SNLIDataset, MNLIDataset, WNLIDataset, SSTDataset
 
-class NLITask(Task):
-    pass
+tasks = {
+    'MRPC': MRPCDataset,
+    'QQP': QQPDataset,
+    'QNLI': QNLIDataset,
+    'RTE': RTEDataset,
+    'STS-B': STSBDataset,
+    'CoLA': COLADataset,
+    'MNLI': MNLIDataset,
+    'SNLI': SNLIDataset,
+    'WNLI': WNLIDataset,
+    'SST': SSTDataset
+}
+

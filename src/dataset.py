@@ -29,6 +29,8 @@ except ImportError:
     from .tokenizer import convert_to_unicode
 from gluonnlp.data import TSVDataset
 from gluonnlp.data.registry import register
+import gluonnlp as nlp
+import random
 
 
 @register(segment=['train', 'dev', 'test'])
@@ -74,8 +76,9 @@ class MRPCDataset(TSVDataset):
 class GLUEDataset(TSVDataset):
     """GLUEDataset class"""
 
-    def __init__(self, path, num_discard_samples, fields):
+    def __init__(self, path, num_discard_samples, fields, max_num_examples=-1):
         self.fields = fields
+        self.max_num_examples = max_num_examples
         super(GLUEDataset, self).__init__(
             path, num_discard_samples=num_discard_samples)
 
@@ -85,6 +88,8 @@ class GLUEDataset(TSVDataset):
         #to filter out error records
         final_samples = [[s[f] for f in self.fields] for s in all_samples
                          if len(s) >= largest_field + 1]
+        if self.max_num_examples > 0:
+            return final_samples[:self.max_num_examples]
         return final_samples
 
 
@@ -354,7 +359,8 @@ class MNLIDataset(GLUEDataset):
     def __init__(self,
                  segment='dev_matched',
                  root=os.path.join(os.getenv('GLUE_DIR', 'glue_data'),
-                                   'MNLI')):  #pylint: disable=c0330
+                                   'MNLI'),
+                 max_num_examples=-1):  #pylint: disable=c0330
         self._supported_segments = [
             'dev_matched', 'dev_mismatched', 'test_matched', 'test_mismatched',
             'train'
@@ -371,7 +377,7 @@ class MNLIDataset(GLUEDataset):
             A_IDX, B_IDX, LABEL_IDX = 8, 9, 11
             fields = [A_IDX, B_IDX, LABEL_IDX]
         super(MNLIDataset, self).__init__(
-            path, num_discard_samples=1, fields=fields)
+            path, num_discard_samples=1, fields=fields, max_num_examples=max_num_examples)
 
     @staticmethod
     def get_labels():
@@ -401,14 +407,15 @@ class SNLIDataset(GLUEDataset):
     def __init__(self,
                  segment='train',
                  root=os.path.join(os.getenv('GLUE_DIR', 'glue_data'),
-                                   'SNLI')):  #pylint: disable=c0330
+                                   'SNLI'),
+                 max_num_examples=-1):  #pylint: disable=c0330
         self._supported_segments = ['train', 'dev', 'test']
         assert segment in self._supported_segments, 'Unsupported segment: %s' % segment
         path = os.path.join(root, '%s.tsv' % segment)
         A_IDX, B_IDX, LABEL_IDX = 7, 8, 14
         fields = [A_IDX, B_IDX, LABEL_IDX]
         super(SNLIDataset, self).__init__(
-            path, num_discard_samples=1, fields=fields)
+            path, num_discard_samples=1, fields=fields, max_num_examples=max_num_examples)
 
     @staticmethod
     def get_labels():
@@ -694,6 +701,30 @@ class ClassificationTransform(object):
         input_ids, valid_length, segment_ids = self._bert_xform(line[:-1])
         return input_ids, valid_length, segment_ids, label_id
 
+    def get_length(self, *data):
+        return data[1]
+
+    def get_batcher(self):
+        batchify_fn = nlp.data.batchify.Tuple(
+            nlp.data.batchify.Pad(axis=0), nlp.data.batchify.Stack(),
+            nlp.data.batchify.Pad(axis=0), nlp.data.batchify.Stack())
+        return batchify_fn
+
+
+class SNLICheatTransform(object):
+    def __init__(self, labels, percent=1.):
+        self.percent = percent
+        self.labels = labels
+
+    def __call__(self, line):
+        premise, hypothesis, label = line[0], line[1], line[2]
+        if random.random() < self.percent:
+            label = label
+        else:
+            label = random.choice(self.labels)
+        line[1] = label + hypothesis
+        return line
+
 
 class SNLISuperficialTransform(ClassificationTransform):
     def __init__(self, tokenizer, labels, max_seq_length, pad=True):
@@ -712,6 +743,32 @@ class SNLISuperficialTransform(ClassificationTransform):
         label_id = np.array([label_id], dtype='int32')
         input_ids, valid_length, segment_ids = self._bert_xform(line[:-1])
         return input_ids, valid_length, segment_ids, label_id
+
+    def get_length(self, *data):
+        return data[1]
+
+    def get_batcher(self):
+        batchify_fn = nlp.data.batchify.Tuple(
+            nlp.data.batchify.Pad(axis=0), nlp.data.batchify.Stack(),
+            nlp.data.batchify.Pad(axis=0), nlp.data.batchify.Stack())
+        return batchify_fn
+
+
+class AdditiveTransform(object):
+    def __init__(self, transforms, use_length=0):
+        self.transforms = transforms
+        # Use which transform to get data valid length
+        self.use_length = use_length
+
+    def __call__(self, line):
+        return [trans(line) for trans in self.transforms]
+
+    def get_length(self, data):
+        return self.transforms[self.use_length].get_length(*data[self.use_length])
+
+    def get_batcher(self):
+        batchify_fn = nlp.data.batchify.Tuple(*[trans.get_batcher() for trans in self.transforms])
+        return batchify_fn
 
 
 class RegressionTransform(object):

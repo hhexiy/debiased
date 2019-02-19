@@ -10,6 +10,7 @@ from .bert import BERTClassifier
 from .additive import AdditiveClassifier
 from .task import tasks
 from .tokenizer import FullTokenizer
+from .utils import read_args
 
 logger = logging.getLogger('nli')
 
@@ -30,35 +31,24 @@ def build_bert_model(args, ctx):
 
 def load_model(args, model_args, path, ctx):
     model, _, tokenizer = build_model(model_args, ctx)
-    params_file = 'last.params' #if args.use_last else 'valid_best.params'
-    #if path == 'output/snli-bert-cheat':
-    if True:
-        print('load params from', os.path.join(
-            path, 'checkpoints', params_file))
-        model.load_parameters(os.path.join(
-            path, 'checkpoints', params_file), ctx=ctx)
-    else:
-        print('pass')
+    params_file = 'last.params' if args.use_last else 'valid_best.params'
+    logger.info('load model from {}'.format(os.path.join(
+        path, 'checkpoints', params_file)))
+    model.load_parameters(os.path.join(
+        path, 'checkpoints', params_file), ctx=ctx)
     vocab = nlp.Vocab.from_json(
         open(os.path.join(path, 'vocab.jsons')).read())
     return model, vocab, tokenizer
 
 def build_model(args, ctx):
     model, vocabulary = build_bert_model(args, ctx)
-    if 'additive' in vars(args) and args.additive:
-        path = args.additive
-        #path = 'output/snli-bert-cheat'
-        model_args = argparse.Namespace(**json.load(
-            open(os.path.join(path, 'config.json'))))
-        a_model, _, _ = load_model(args, model_args, path, ctx)
-        model = AdditiveClassifier(classifiers=[a_model, model],
+    if args.additive:
+        model_args = read_args(args.additive)
+        sup_model, _, _ = load_model(args, model_args, args.additive, ctx)
+        model = AdditiveClassifier(classifiers=[sup_model, model],
                                             active=[True, True],
                                             no_grad=[True, False],
-                                            names=['cheat', 'normal'])
-        #model = AdditiveClassifier(classifiers=[a_model],
-        #                                    active=[True],
-        #                                    no_grad=[False],
-        #                                    names=['cheat'])
+                                            names=['sup', 'normal'])
 
     #do_lower_case = 'uncased' in dataset
     do_lower_case = True

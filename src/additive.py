@@ -27,6 +27,5 @@ class AdditiveClassifier(Block):
     def forward(self, classifier_inputs):
         assert len(classifier_inputs) == len(self.classifiers)
         outputs = mx.nd.add_n(*[c(*i) for c, i, active in zip(self.classifiers, classifier_inputs, self.active) if active])
-        #outputs = self.classifiers[0](*classifier_inputs[0])
         return outputs
 

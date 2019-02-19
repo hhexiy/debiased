@@ -58,6 +58,7 @@ import pickle as pkl
 #from .model_builder import build_model, load_model
 #from .task import tasks
 
+from .utils import read_args
 from .runner import *
 
 logger = logging.getLogger('nli')
@@ -79,11 +80,16 @@ def main(args):
     np.random.seed(args.seed)
     random.seed(args.seed)
 
+    if args.mode == 'test':
+        model_args = read_args(args.init_from)
+    else:
+        model_args = args
+
     task = tasks[args.task_name]
 
-    if args.superficial:
+    if model_args.superficial:
         runner = SuperficialNLIRunner(task, args.output_dir, args.exp_id)
-    elif args.additive:
+    elif model_args.additive:
         runner = AdditiveNLIRunner(task, args.output_dir, args.exp_id)
     else:
         runner = NLIRunner(task, args.output_dir, args.exp_id)
@@ -95,9 +101,12 @@ def main(args):
             'usage and faster speed. If you encounter OOM errors, please unset '
             'this environment variable.')
 
-    runner.run(args)
-
-    runner.dump_report()
+    try:
+        runner.run(args)
+        runner.dump_report()
+    except KeyboardInterrupt:
+        logger.info('Terminated. Dumping report.')
+        runner.dump_report()
 
 
 if __name__ == '__main__':

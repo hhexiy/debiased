@@ -9,6 +9,7 @@ import json
 import numpy as np
 import pickle as pkl
 import uuid
+import glob
 
 import mxnet as mx
 from mxnet import gluon
@@ -20,7 +21,7 @@ from .dataset import MRPCDataset, QQPDataset, RTEDataset, \
     QNLIDataset, COLADataset, SNLIDataset, MNLIDataset, WNLIDataset, SSTDataset
 from .options import add_default_arguments, add_data_arguments, add_logging_arguments, \
     add_model_arguments, add_training_arguments
-from .utils import logging_config, get_dir, metric_to_list
+from .utils import *
 from .model_builder import build_model, load_model
 from .task import tasks
 
@@ -76,45 +77,47 @@ class NLIRunner(Runner):
 
         if args.mode == 'train':
             self.run_train(args, ctx)
+        else:
+            self.run_test(args, ctx)
 
     def run_train(self, args, ctx):
         model, vocab, tokenizer = build_model(args, ctx)
         self.dump_vocab(vocab)
-        train_data, num_train_examples = self.build_data_loader(args.train_split, args.batch_size, args.max_len, tokenizer, test=False, cheat_percent=args.cheat, max_num_examples=args.max_num_examples)
+        train_data, num_train_examples = self.build_data_loader(args.train_split, args.batch_size, args.max_len, tokenizer, test=False, cheat_rate=args.cheat, max_num_examples=args.max_num_examples)
         dev_data, _ = self.build_data_loader(args.test_split, args.batch_size, args.max_len, tokenizer, test=True, max_num_examples=args.max_num_examples)
         self.train(args, model, train_data, dev_data, num_train_examples, ctx)
 
     def run_test(self, args, ctx):
-        model_args = argparse.Namespace(**json.load(
-            open(os.path.join(args.init_from, 'config.json'))))
+        config = json.load(
+            open(os.path.join(args.init_from, 'report.json')))['config']
+        model_args = argparse.Namespace(**config)
         model, vocab, tokenizer = load_model(args, model_args, args.init_from, ctx)
-        test_data, num_examples = self.build_data_loader(model_args.test_split, args.eval_batch_size, model_args.max_len, tokenizer, test=True, max_num_examples=args.max_num_examples)
-        loss, metric, preds, labels = self.evaluate(test_data, model, task.get_metric(), ctx)
-        metric_names, metric_vals = metric_to_list(metric)
-        logger.info(('loss={:.4f}, metrics=' + \
-                     ','.join([i + ':{:.4f}' for i in metric_names]))
-                    .format(loss, *metric_vals))
+        test_data, num_examples = self.build_data_loader(model_args.test_split, args.eval_batch_size, model_args.max_len, tokenizer, test=True, max_num_examples=args.max_num_examples, cheat_rate=args.cheat)
+        metrics, preds, labels = self.evaluate(test_data, model, self.task.get_metric(), ctx)
+        logger.info(metric_dict_to_str(metrics))
+        self.update_report(('test',), metrics)
 
-    def build_cheat_transformer(self, cheat_percent):
-        if cheat_percent <= 0:
+    def build_cheat_transformer(self, cheat_rate):
+        if cheat_rate < 0:
             return None
         else:
-            logger.info('cheating rate: {}'.format(cheat_percent))
-            return SNLICheatTransform(self.task.get_labels(), percent=cheat_percent)
+            logger.info('cheating rate: {}'.format(cheat_rate))
+            return SNLICheatTransform(self.task.get_labels(), rate=cheat_rate)
 
     def build_model_transformer(self, max_len, tokenizer):
         trans = ClassificationTransform(
             tokenizer, self.labels, max_len, pad=False, pair=True)
         return trans
 
-    def build_data_transformer(self, max_len, tokenizer, cheat_percent=0):
+    def build_data_transformer(self, max_len, tokenizer, cheat_rate=0):
         trans_list = []
-        trans_list.append(self.build_cheat_transformer(cheat_percent))
+        trans_list.append(self.build_cheat_transformer(cheat_rate))
         trans_list.append(self.build_model_transformer(max_len, tokenizer))
         return [x for x in trans_list if x]
 
-    def build_data_loader(self, split, batch_size, max_len, tokenizer, test=False, cheat_percent=0, max_num_examples=-1):
-        trans_list = self.build_data_transformer(max_len, tokenizer, cheat_percent=cheat_percent)
+    def build_data_loader(self, split, batch_size, max_len, tokenizer, test=False, cheat_rate=0, max_num_examples=-1):
+        logger.info('building data loader for data split={}'.format(split))
+        trans_list = self.build_data_transformer(max_len, tokenizer, cheat_rate=cheat_rate)
         dataset = self.task(split, max_num_examples=max_num_examples)
         for trans in trans_list:
             dataset = dataset.transform(trans)
@@ -160,7 +163,9 @@ class NLIRunner(Runner):
             loss += self.loss_function(out, label).mean().asscalar()
             metric.update([label], [out])
         loss /= len(data_loader)
-        return loss, metric, preds, labels
+        metric = metric_to_dict(metric)
+        metric['loss'] = loss
+        return metric, preds, labels
 
     def train(self, args, model, train_data, dev_data, num_train_examples, ctx):
         task = self.task
@@ -255,19 +260,17 @@ class NLIRunner(Runner):
                     step_loss = 0
             mx.nd.waitall()
 
-            dev_loss, dev_metric, _, _ = self.evaluate(dev_data, model, metric, ctx)
-            metric_names, metric_vals = metric_to_list(dev_metric)
+            dev_metrics, _, _ = self.evaluate(dev_data, model, metric, ctx)
+            dev_loss = dev_metrics['loss']
             if dev_loss < best_dev_loss:
                 best_dev_loss = dev_loss
                 checkpoint_path = os.path.join(checkpoints_dir, 'valid_best.params')
                 model.save_parameters(checkpoint_path)
-                self.update_report(('train', 'best_val_results', 'loss'), best_dev_loss)
-                for name, val in zip(metric_names, metric_vals):
+                for name, val in dev_metrics.items():
                     self.update_report(('train', 'best_val_results', name), val)
-            logger.info(('[Epoch {}] val_loss={:.4f}, best_val_loss={:.4f}, ' + \
-                         'val_metrics=' + \
-                         ','.join([i + ':{:.4f}' for i in metric_names]))
-                        .format(epoch_id, dev_loss, best_dev_loss, *metric_vals))
+            metric_names = sorted(dev_metrics.keys())
+            logger.info('[Epoch {}] val_loss={:.4f}, val_metrics={}'.format(
+                        epoch_id, dev_loss, metric_dict_to_str(dev_metrics)))
 
             # Save checkpoint of last epoch
             checkpoint_path = os.path.join(checkpoints_dir, 'last.params')
@@ -303,3 +306,17 @@ class AdditiveNLIRunner(NLIRunner):
             inputs.append(_inputs)
             label = _label
         return [inputs], label
+
+    def run(self, args):
+        #if args.mode == 'train':
+        #    model_args, init_model_dir = [(read_args(f), f)
+        #            for f in glob.glob('{}/*'.format(args.additive))]
+        #    init_model_dir = None
+        #    for _model_args, f in model_args:
+        #        if _model_args.cheat == args.cheat:
+        #            init_model_dir = os.path.dirname(f)
+        #            break
+        #    if not init_model_dir:
+        #        raise ValueError('cannot find matching pretrained model')
+        #    args.additive = init_model_dir
+        super().run(args)

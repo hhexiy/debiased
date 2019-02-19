@@ -20,8 +20,8 @@ def add_data_arguments(parser):
                         help='only use superficial features')
     group.add_argument('--additive',
                         help='path to models to be added to the additive model')
-    group.add_argument('--cheat', type=float, default=0.,
-                        help='percentage of training data using cheating feature')
+    group.add_argument('--cheat', type=float, default=-1,
+                        help='percentage of training data using cheating feature. -1 means on cheating features is added at all.')
     group.add_argument('--task-name', required=True,
                         help='The name of the task to fine-tune.(MRPC,...)')
     group.add_argument('--max-num-examples', type=int, default=-1,

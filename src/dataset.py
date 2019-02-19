@@ -712,17 +712,36 @@ class ClassificationTransform(object):
 
 
 class SNLICheatTransform(object):
-    def __init__(self, labels, percent=1.):
-        self.percent = percent
+    def __init__(self, labels, rate=1.):
+        self.rate = rate
         self.labels = labels
 
     def __call__(self, line):
         premise, hypothesis, label = line[0], line[1], line[2]
-        if random.random() < self.percent:
+        if random.random() < self.rate:
             label = label
         else:
             label = random.choice(self.labels)
         line[1] = label + hypothesis
+        return line
+
+
+class SNLIWordDropTransform(object):
+    def __init__(self, rate=0., sentences=('premise', 'hypothesis')):
+        self.rate = rate
+        self.sentences = sentences
+
+    def dropout(self, seq):
+        mask = np.binomial(n=1, p=self.rate, size=len(seq))
+        return [s for m, s in zip(mask, seq) if m == 1]
+
+    def __call__(self, line):
+        premise, hypothesis, label = line[0], line[1], line[2]
+        if 'premise' in self.sentences:
+            premise = self.dropout(premise)
+        if 'hypothesis' in self.sentences:
+            hypothesis = self.dropout(hypothesis)
+        line = [premise, hypothesis, label]
         return line
 
 

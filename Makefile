@@ -24,10 +24,14 @@ train-bert:
 	MXNET_GPU_MEM_POOL_TYPE=Round GLUE_DIR=data/glue_data python3 -m src.main --task-name $(task) --batch-size $(bs) --optimizer bertadam --epochs 4 --gpu-id $(gpu) --lr $(lr) --log-interval $(interval) --output-dir output/$(exp) --dropout 0.1 --test-split $(test-split) --cheat $(cheat_rate) --max-num-examples $(num_ex) 
 
 train-bert-sup:
-	MXNET_GPU_MEM_POOL_TYPE=Round GLUE_DIR=data/glue_data python3 -m src.main --task-name $(task) --batch-size $(bs) --optimizer bertadam --epochs 4 --gpu-id $(gpu) --lr $(lr) --log-interval $(interval) --output-dir output/$(exp) --dropout 0.1 --superficial --test-split $(test-split) --cheat $(cheat_rate) #--init-from $(from)
+	MXNET_GPU_MEM_POOL_TYPE=Round GLUE_DIR=data/glue_data python3 -m src.main --task-name $(task) --batch-size $(bs) --optimizer bertadam --epochs 4 --gpu-id $(gpu) --lr $(lr) --log-interval $(interval) --output-dir output/$(exp) --dropout 0.1 --superficial --test-split $(test-split) --cheat $(cheat_rate) --max-num-examples $(num_ex) 
 
 train-bert-additive:
-	MXNET_GPU_MEM_POOL_TYPE=Round GLUE_DIR=data/glue_data python3 -m src.main --task-name $(task) --batch-size $(bs) --optimizer bertadam --epochs 4 --gpu-id $(gpu) --lr $(lr) --log-interval $(interval) --exp-id $(exp) --output-dir output --dropout 0.1 --test-split $(test-split) --additive $(from) --cheat $(cheat_rate)
+	#MXNET_GPU_MEM_POOL_TYPE=Round
+	GLUE_DIR=data/glue_data python3 -m src.main --task-name $(task) --batch-size $(bs) --optimizer bertadam --epochs 4 --gpu-id $(gpu) --lr $(lr) --log-interval $(interval) --output-dir output/$(exp) --dropout 0.1 --test-split $(test-split) --additive $(from) --cheat $(cheat_rate) --max-num-examples $(num_ex)
 
 test-bert:
-	MXNET_GPU_MEM_POOL_TYPE=Round GLUE_DIR=data/glue_data python3 -m src.finetune_classifier --task-name $(task) --eval-batch-size $(bs) --gpu-id $(gpu) --mode test --init-from $(from) --output-dir $(from) --exp-id $(exp) --test-split $(test-split) --use-last --dropout 0.0
+	MXNET_GPU_MEM_POOL_TYPE=Round GLUE_DIR=data/glue_data python3 -m src.main --task-name $(task) --eval-batch-size $(bs) --gpu-id $(gpu) --mode test --init-from $(from) --output-dir $(from) --exp-id $(exp) --test-split $(test-split) --use-last --dropout 0.0 --cheat 0
+
+summarize:
+	python scripts/summarize_results.py --runs-dir $(exp)

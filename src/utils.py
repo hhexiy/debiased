@@ -24,6 +24,8 @@ Utility functions.
 
 import os
 import logging
+import json
+import argparse
 
 def logging_config(logpath=None,
                    level=logging.DEBUG,
@@ -61,9 +63,20 @@ def get_dir(path):
         os.makedirs(path)
     return path
 
-def metric_to_list(metric):
+def metric_to_dict(metric):
     metric_name, metric_val = metric.get()
     if not isinstance(metric_name, list):
         metric_name = [metric_name]
         metric_val = [metric_val]
-    return metric_name, metric_val
+    return {name: val for name, val in zip(metric_name, metric_val)}
+
+def metric_dict_to_str(metrics):
+    metric_names = sorted(metrics.keys())
+    s = ','.join([i + ':{:.4f}' for i in metric_names]).format(
+            *(metrics[name] for name in metric_names))
+    return s
+
+def read_args(path):
+    config = json.load(open(os.path.join(path, 'report.json')))['config']
+    args = argparse.Namespace(**config)
+    return args

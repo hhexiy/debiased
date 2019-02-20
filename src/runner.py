@@ -15,7 +15,7 @@ import mxnet as mx
 from mxnet import gluon
 import gluonnlp as nlp
 
-from .bert import BERTClassifier, BERTRegression
+from .model.bert import BERTClassifier, BERTRegression
 from .dataset import MRPCDataset, QQPDataset, RTEDataset, \
     STSBDataset, ClassificationTransform, RegressionTransform, SNLISuperficialTransform, AdditiveTransform, SNLICheatTransform, \
     QNLIDataset, COLADataset, SNLIDataset, MNLIDataset, WNLIDataset, SSTDataset

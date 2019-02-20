@@ -84,7 +84,8 @@ class NLIRunner(Runner):
         model, vocab, tokenizer = build_model(args, ctx)
         self.dump_vocab(vocab)
         train_data, num_train_examples = self.build_data_loader(args.train_split, args.batch_size, args.max_len, tokenizer, test=False, cheat_rate=args.cheat, max_num_examples=args.max_num_examples)
-        dev_data, _ = self.build_data_loader(args.test_split, args.batch_size, args.max_len, tokenizer, test=True, max_num_examples=args.max_num_examples)
+        # NOTE: If cheating is enabled, we want to randomize the cheating feature at test time (cheat_rate = 0); otherwise, we don't want cheating features.
+        dev_data, _ = self.build_data_loader(args.test_split, args.batch_size, args.max_len, tokenizer, test=True, max_num_examples=args.max_num_examples, cheat_rate=0 if args.cheat > 0 else -1)
         self.train(args, model, train_data, dev_data, num_train_examples, ctx)
 
     def run_test(self, args, ctx):

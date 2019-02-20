@@ -722,7 +722,7 @@ class SNLICheatTransform(object):
             label = label
         else:
             label = random.choice(self.labels)
-        line[1] = label + hypothesis
+        line[1] = '<{}> {}'.format(label, hypothesis)
         return line
 
 

@@ -76,6 +76,23 @@ def parse_args():
     add_training_arguments(parser)
     return parser.parse_args()
 
+def get_runner(args, task, output_dir=None):
+    if not output_dir:
+        output_dir = args.output_dir
+    if args.superficial:
+        runner = SuperficialNLIRunner(task, output_dir, args.exp_id)
+    elif args.additive:
+        prev_args = read_args(args.additive)
+        # Change to inference model
+        prev_args.init_from = args.additive
+        prev_args.dropout = 0.0
+        prev_args.max_num_examples = args.max_num_examples
+        prev_runner = get_runner(prev_args, task, '/tmp')
+        runner = AdditiveNLIRunner(task, output_dir, prev_runner, prev_args, args.exp_id)
+    else:
+        runner = NLIRunner(task, output_dir, args.exp_id)
+    return runner
+
 def main(args):
     np.random.seed(args.seed)
     random.seed(args.seed)
@@ -87,12 +104,7 @@ def main(args):
 
     task = tasks[args.task_name]
 
-    if model_args.superficial:
-        runner = SuperficialNLIRunner(task, args.output_dir, args.exp_id)
-    elif model_args.additive:
-        runner = AdditiveNLIRunner(task, args.output_dir, args.exp_id)
-    else:
-        runner = NLIRunner(task, args.output_dir, args.exp_id)
+    runner = get_runner(model_args, task)
 
     pool_type = os.environ.get('MXNET_GPU_MEM_POOL_TYPE', '')
     if pool_type.lower() == 'round':

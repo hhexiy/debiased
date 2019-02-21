@@ -30,7 +30,7 @@ def build_bert_model(args, ctx):
     return model, vocabulary
 
 def load_model(args, model_args, path, ctx):
-    model, _, tokenizer = build_model(model_args, ctx)
+    model, _, tokenizer = build_model(args, model_args, ctx)
     params_file = 'last.params' if args.use_last else 'valid_best.params'
     logger.info('load model from {}'.format(os.path.join(
         path, 'checkpoints', params_file)))
@@ -40,17 +40,11 @@ def load_model(args, model_args, path, ctx):
         open(os.path.join(path, 'vocab.jsons')).read())
     return model, vocab, tokenizer
 
-def build_model(args, ctx):
-    model, vocabulary = build_bert_model(args, ctx)
-    if args.additive:
-        model_args = read_args(args.additive)
-        sup_model, _, _ = load_model(args, model_args, args.additive, ctx)
-        model = AdditiveClassifier(classifiers=[sup_model, model],
-                                            active=[True, True],
-                                            no_grad=[True, False],
-                                            names=['sup', 'normal'])
-
-    #do_lower_case = 'uncased' in dataset
+def build_model(args, model_args, ctx):
+    model, vocabulary = build_bert_model(model_args, ctx)
+    if model_args.additive:
+        model = AdditiveClassifier(model, mode=args.additive_mode)
+    # do_lower_case = 'uncased' in dataset
     do_lower_case = True
     tokenizer = FullTokenizer(vocabulary, do_lower_case=do_lower_case)
 
@@ -58,39 +52,39 @@ def build_model(args, ctx):
     return model, vocabulary, tokenizer
 
 
-class ModelBuilder(object):
-    def __init__(self):
-        self.tokenizer = None
-        self.vocab = None
-
-    def build_model(self, args, ctx):
-        raise NotImplementedError
-
-    def load_model(self, args, model_args, path, ctx):
-        model, _, tokenizer = self.build_model(model_args, ctx)
-        params_file = 'last.params' if args.use_last else 'valid_best.params'
-        logger.info('load model from {}'.format(os.path.join(
-            path, 'checkpoints', params_file)))
-        model.load_parameters(os.path.join(
-            path, 'checkpoints', params_file), ctx=ctx)
-        vocab = nlp.Vocab.from_json(
-            open(os.path.join(path, 'vocab.jsons')).read())
-        return model, vocab, tokenizer
-
-
-class BERTModelBuilder(ModelBuilder):
-    def build_model(self, args, ctx):
-        dataset = 'book_corpus_wiki_en_uncased'
-        do_lower_case = 'uncased' in dataset
-        bert, vocabulary = bert_12_768_12(
-            dataset_name=dataset,
-            pretrained=True,
-            ctx=ctx,
-            use_pooler=True,
-            use_decoder=False,
-            use_classifier=False)
-        task_name = args.task_name
-        num_classes = len(tasks[task_name].get_labels())
-        model = BERTClassifier(bert, num_classes=num_classes, dropout=args.dropout)
-        tokenizer = FullTokenizer(vocabulary, do_lower_case=do_lower_case)
-        return model, vocabulary, tokenizer
+#class ModelBuilder(object):
+#    def __init__(self):
+#        self.tokenizer = None
+#        self.vocab = None
+#
+#    def build_model(self, args, ctx):
+#        raise NotImplementedError
+#
+#    def load_model(self, args, model_args, path, ctx):
+#        model, _, tokenizer = self.build_model(args, model_args, ctx)
+#        params_file = 'last.params' if args.use_last else 'valid_best.params'
+#        logger.info('load model from {}'.format(os.path.join(
+#            path, 'checkpoints', params_file)))
+#        model.load_parameters(os.path.join(
+#            path, 'checkpoints', params_file), ctx=ctx)
+#        vocab = nlp.Vocab.from_json(
+#            open(os.path.join(path, 'vocab.jsons')).read())
+#        return model, vocab, tokenizer
+#
+#
+#class BERTModelBuilder(ModelBuilder):
+#    def build_model(self, args, ctx):
+#        dataset = 'book_corpus_wiki_en_uncased'
+#        do_lower_case = 'uncased' in dataset
+#        bert, vocabulary = bert_12_768_12(
+#            dataset_name=dataset,
+#            pretrained=True,
+#            ctx=ctx,
+#            use_pooler=True,
+#            use_decoder=False,
+#            use_classifier=False)
+#        task_name = args.task_name
+#        num_classes = len(tasks[task_name].get_labels())
+#        model = BERTClassifier(bert, num_classes=num_classes, dropout=args.dropout)
+#        tokenizer = FullTokenizer(vocabulary, do_lower_case=do_lower_case)
+#        return model, vocabulary, tokenizer

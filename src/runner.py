@@ -81,11 +81,11 @@ class NLIRunner(Runner):
             self.run_test(args, ctx)
 
     def run_train(self, args, ctx):
-        model, vocab, tokenizer = build_model(args, ctx)
+        model, vocab, tokenizer = build_model(args, args, ctx)
         self.dump_vocab(vocab)
-        train_data, num_train_examples = self.build_data_loader(args.train_split, args.batch_size, args.max_len, tokenizer, test=False, cheat_rate=args.cheat, max_num_examples=args.max_num_examples)
+        train_data, num_train_examples = self.build_data_loader(args.train_split, args.batch_size, args.max_len, tokenizer, test=False, cheat_rate=args.cheat, max_num_examples=args.max_num_examples, ctx=ctx)
         # NOTE: If cheating is enabled, we want to randomize the cheating feature at test time (cheat_rate = 0); otherwise, we don't want cheating features.
-        dev_data, _ = self.build_data_loader(args.test_split, args.batch_size, args.max_len, tokenizer, test=True, max_num_examples=args.max_num_examples, cheat_rate=0 if args.cheat > 0 else -1)
+        dev_data, _ = self.build_data_loader(args.test_split, args.batch_size, args.max_len, tokenizer, test=True, max_num_examples=args.max_num_examples, cheat_rate=0 if args.cheat > 0 else -1, ctx=ctx)
         self.train(args, model, train_data, dev_data, num_train_examples, ctx)
 
     def run_test(self, args, ctx):
@@ -93,10 +93,11 @@ class NLIRunner(Runner):
             open(os.path.join(args.init_from, 'report.json')))['config']
         model_args = argparse.Namespace(**config)
         model, vocab, tokenizer = load_model(args, model_args, args.init_from, ctx)
-        test_data, num_examples = self.build_data_loader(model_args.test_split, args.eval_batch_size, model_args.max_len, tokenizer, test=True, max_num_examples=args.max_num_examples, cheat_rate=args.cheat)
-        metrics, preds, labels = self.evaluate(test_data, model, self.task.get_metric(), ctx)
+        test_data, num_examples = self.build_data_loader(args.test_split, args.eval_batch_size, model_args.max_len, tokenizer, test=True, max_num_examples=args.max_num_examples, cheat_rate=args.cheat, ctx=ctx)
+        metrics, preds, labels, scores = self.evaluate(test_data, model, self.task.get_metric(), ctx)
         logger.info(metric_dict_to_str(metrics))
-        self.update_report(('test',), metrics)
+        self.update_report(('test', args.test_split), metrics)
+        return preds, scores
 
     def build_cheat_transformer(self, cheat_rate):
         if cheat_rate < 0:
@@ -116,19 +117,23 @@ class NLIRunner(Runner):
         trans_list.append(self.build_model_transformer(max_len, tokenizer))
         return [x for x in trans_list if x]
 
-    def build_data_loader(self, split, batch_size, max_len, tokenizer, test=False, cheat_rate=0, max_num_examples=-1):
-        logger.info('building data loader for data split={}'.format(split))
+    def build_dataset(self, split, max_len, tokenizer, cheat_rate=0, max_num_examples=-1, ctx=None):
         trans_list = self.build_data_transformer(max_len, tokenizer, cheat_rate=cheat_rate)
         dataset = self.task(split, max_num_examples=max_num_examples)
         for trans in trans_list:
             dataset = dataset.transform(trans)
         # Last transform
         trans = trans_list[-1]
-
-        num_samples = len(dataset)
         data_lengths = dataset.transform(trans.get_length)
-
         batchify_fn = trans.get_batcher()
+        return dataset, data_lengths, batchify_fn
+
+    def build_data_loader(self, split, batch_size, max_len, tokenizer, test=False, cheat_rate=0, max_num_examples=-1, ctx=None):
+        logger.info('building data loader for data split={}'.format(split))
+
+        dataset, data_lengths, batchify_fn = self.build_dataset(split, max_len, tokenizer, cheat_rate, max_num_examples, ctx=ctx)
+        num_samples = len(dataset)
+
         batch_sampler = nlp.data.FixedBucketSampler(lengths=data_lengths,
                                                     batch_size=batch_size,
                                                     num_buckets=10,
@@ -154,10 +159,15 @@ class NLIRunner(Runner):
         metric.reset()
         preds = []
         labels = []
+        scores = None
         for _, seqs in enumerate(data_loader):
             Ls = []
             inputs, label = self.prepare_data(seqs, ctx)
             out = model(*inputs)
+            if scores is None:
+                scores = out
+            else:
+                scores = mx.nd.concat(scores, out, dim=0)
             _preds = mx.ndarray.argmax(out, axis=1)
             preds.extend(_preds.asnumpy().astype('int32'))
             labels.extend(label[:,0].asnumpy())
@@ -166,7 +176,8 @@ class NLIRunner(Runner):
         loss /= len(data_loader)
         metric = metric_to_dict(metric)
         metric['loss'] = loss
-        return metric, preds, labels
+        scores = scores.asnumpy().astype('float32')
+        return metric, preds, labels, scores
 
     def train(self, args, model, train_data, dev_data, num_train_examples, ctx):
         task = self.task
@@ -261,14 +272,13 @@ class NLIRunner(Runner):
                     step_loss = 0
             mx.nd.waitall()
 
-            dev_metrics, _, _ = self.evaluate(dev_data, model, metric, ctx)
+            dev_metrics, _, _, _ = self.evaluate(dev_data, model, metric, ctx)
             dev_loss = dev_metrics['loss']
             if dev_loss < best_dev_loss:
                 best_dev_loss = dev_loss
                 checkpoint_path = os.path.join(checkpoints_dir, 'valid_best.params')
                 model.save_parameters(checkpoint_path)
-                for name, val in dev_metrics.items():
-                    self.update_report(('train', 'best_val_results', name), val)
+                self.update_report(('train', 'best_val_results'), dev_metrics)
             metric_names = sorted(dev_metrics.keys())
             logger.info('[Epoch {}] val_loss={:.4f}, val_metrics={}'.format(
                         epoch_id, dev_loss, metric_dict_to_str(dev_metrics)))
@@ -290,34 +300,40 @@ class SuperficialNLIRunner(NLIRunner):
 class AdditiveNLIRunner(NLIRunner):
     """Additive model of a superficial classifier and a normal classifier.
     """
-    def build_model_transformer(self, max_len, tokenizer):
-        sup_trans = SNLISuperficialTransform(
-            tokenizer, self.labels, max_len, pad=False)
-        all_trans = ClassificationTransform(
-            tokenizer, self.labels, max_len, pad=False, pair=True)
-        trans = AdditiveTransform([sup_trans, all_trans], use_length=1)
-        return trans
+    def __init__(self, task, runs_dir, prev_runner, prev_args, run_id=None):
+        # Runner for the previous model
+        self.prev_runner = prev_runner
+        self.prev_args = prev_args
+        super().__init__(task, runs_dir, run_id)
+
+    def run_prev_model(self, split, ctx):
+        logger.info('running previous model on {}'.format(split))
+        self.prev_args.test_split = split
+        _, prev_scores = self.prev_runner.run_test(self.prev_args, ctx)
+        return prev_scores
+
+    def build_dataset(self, split, max_len, tokenizer, cheat_rate=0, max_num_examples=-1, ctx=None):
+        dataset, data_lengths, batchify_fn = super().build_dataset(split, max_len, tokenizer, cheat_rate, max_num_examples)
+        prev_scores = self.run_prev_model(split, ctx)
+        assert len(dataset) == len(prev_scores)
+        batchify_fn = nlp.data.batchify.Tuple(nlp.data.batchify.Stack(), batchify_fn)
+        return mx.gluon.data.ArrayDataset(prev_scores, dataset), data_lengths, batchify_fn
 
     def prepare_data(self, data, ctx):
-        inputs = []
-        label = None
-        # inputs going throught two transforms respectively
-        for d in data:
-            _inputs, _label = super().prepare_data(d, ctx)
-            inputs.append(_inputs)
-            label = _label
-        return [inputs], label
+        prev_scores, model_data = data
+        prev_scores = prev_scores.astype('float32').as_in_context(ctx)
+        inputs, label = super().prepare_data(model_data, ctx)
+        return [prev_scores, inputs], label
 
-    def run(self, args):
-        #if args.mode == 'train':
-        #    model_args, init_model_dir = [(read_args(f), f)
-        #            for f in glob.glob('{}/*'.format(args.additive))]
-        #    init_model_dir = None
-        #    for _model_args, f in model_args:
-        #        if _model_args.cheat == args.cheat:
-        #            init_model_dir = os.path.dirname(f)
-        #            break
-        #    if not init_model_dir:
-        #        raise ValueError('cannot find matching pretrained model')
-        #    args.additive = init_model_dir
-        super().run(args)
+    def evaluate(self, data_loader, model, metric, ctx):
+        metric_dict, preds, labels, scores = super().evaluate(data_loader, model, metric, ctx)
+        original_mode = model.mode
+        for mode in ('all', 'prev', 'last'):
+            if mode != original_mode:
+                metric.reset()
+                _metric_dict, _, _, _ = super().evaluate(data_loader, model, metric, ctx)
+                for k, v in _metric_dict.items():
+                    metric_dict['{}_{}'.format(mode, k)] = v
+        model.mode = original_mode
+        return metric_dict, preds, labels, scores
+

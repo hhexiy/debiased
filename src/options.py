@@ -58,6 +58,8 @@ def add_model_arguments(parser):
                         help='directory to load model')
     group.add_argument('--use-last', action='store_true',
                         help='use the last model instead of the best modal on the dev set')
+    group.add_argument('--additive-mode', choices=['prev', 'last', 'all'], default='all',
+                        help='use which classifier')
 
 def add_training_arguments(parser):
     group = parser.add_argument_group('Training')

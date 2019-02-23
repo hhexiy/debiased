@@ -86,7 +86,7 @@ class GLUEDataset(TSVDataset):
         all_samples = super(GLUEDataset, self)._read()
         largest_field = max(self.fields)
         #to filter out error records
-        final_samples = [[s[f] for f in self.fields] for s in all_samples
+        final_samples = [[id_] + [s[f] for f in self.fields] for id_, s in enumerate(all_samples)
                          if len(s) >= largest_field + 1]
         if self.max_num_examples > 0:
             return final_samples[:self.max_num_examples]
@@ -694,18 +694,21 @@ class ClassificationTransform(object):
         np.array: input token type ids in 'int32', shape (batch_size, seq_length)
         np.array: label id in 'int32', shape (batch_size, 1)
         """
+        id_ = line[0]
+        line = line[1:]
         label = line[-1]
         label = convert_to_unicode(label)
         label_id = self._label_map[label]
         label_id = np.array([label_id], dtype='int32')
         input_ids, valid_length, segment_ids = self._bert_xform(line[:-1])
-        return input_ids, valid_length, segment_ids, label_id
+        return id_, input_ids, valid_length, segment_ids, label_id
 
     def get_length(self, *data):
-        return data[1]
+        return data[2]
 
     def get_batcher(self):
         batchify_fn = nlp.data.batchify.Tuple(
+            nlp.data.batchify.Stack(),
             nlp.data.batchify.Pad(axis=0), nlp.data.batchify.Stack(),
             nlp.data.batchify.Pad(axis=0), nlp.data.batchify.Stack())
         return batchify_fn
@@ -715,15 +718,19 @@ class SNLICheatTransform(object):
     def __init__(self, labels, rate=1.):
         self.rate = rate
         self.labels = labels
+        self.rng = random.Random(42)
 
     def __call__(self, line):
-        premise, hypothesis, label = line[0], line[1], line[2]
-        if random.random() < self.rate:
+        id_, premise, hypothesis, label = line[0], line[1], line[2], line[3]
+        if self.rng.random() < self.rate:
             label = label
         else:
-            label = random.choice(self.labels)
-        line[1] = '<{}> {}'.format(label, hypothesis)
+            label = self.rng.choice(self.labels)
+        line[2] = '<{}> {}'.format(label, hypothesis)
         return line
+
+    def reset(self):
+        self.rng.seed(42)
 
 
 class SNLIWordDropTransform(object):
@@ -754,6 +761,8 @@ class SNLISuperficialTransform(ClassificationTransform):
             tokenizer, max_seq_length, pad=pad, pair=False)
 
     def __call__(self, line):
+        id_ = line[0]
+        line = line[1:]
         # Ignore premise (sentence 1)
         line = line[1:]
         label = line[-1]
@@ -761,13 +770,14 @@ class SNLISuperficialTransform(ClassificationTransform):
         label_id = self._label_map[label]
         label_id = np.array([label_id], dtype='int32')
         input_ids, valid_length, segment_ids = self._bert_xform(line[:-1])
-        return input_ids, valid_length, segment_ids, label_id
+        return id_, input_ids, valid_length, segment_ids, label_id
 
     def get_length(self, *data):
-        return data[1]
+        return data[2]
 
     def get_batcher(self):
         batchify_fn = nlp.data.batchify.Tuple(
+            nlp.data.batchify.Stack(),
             nlp.data.batchify.Pad(axis=0), nlp.data.batchify.Stack(),
             nlp.data.batchify.Pad(axis=0), nlp.data.batchify.Stack())
         return batchify_fn

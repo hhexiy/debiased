@@ -86,7 +86,6 @@ def get_runner(args, task, output_dir=None):
         # Change to inference model
         prev_args.init_from = args.additive
         prev_args.dropout = 0.0
-        prev_args.max_num_examples = args.max_num_examples
         prev_runner = get_runner(prev_args, task, '/tmp')
         runner = AdditiveNLIRunner(task, output_dir, prev_runner, prev_args, args.exp_id)
     else:

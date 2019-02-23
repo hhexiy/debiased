@@ -94,10 +94,10 @@ class NLIRunner(Runner):
         model_args = argparse.Namespace(**config)
         model, vocab, tokenizer = load_model(args, model_args, args.init_from, ctx)
         test_data, num_examples = self.build_data_loader(args.test_split, args.eval_batch_size, model_args.max_len, tokenizer, test=True, max_num_examples=args.max_num_examples, cheat_rate=args.cheat, ctx=ctx)
-        metrics, preds, labels, scores = self.evaluate(test_data, model, self.task.get_metric(), ctx)
+        metrics, preds, labels, scores, ids = self.evaluate(test_data, model, self.task.get_metric(), ctx)
         logger.info(metric_dict_to_str(metrics))
         self.update_report(('test', args.test_split), metrics)
-        return preds, scores
+        return preds, scores, ids
 
     def build_cheat_transformer(self, cheat_rate):
         if cheat_rate < 0:
@@ -113,13 +113,17 @@ class NLIRunner(Runner):
 
     def build_data_transformer(self, max_len, tokenizer, cheat_rate=0):
         trans_list = []
-        trans_list.append(self.build_cheat_transformer(cheat_rate))
         trans_list.append(self.build_model_transformer(max_len, tokenizer))
         return [x for x in trans_list if x]
 
     def build_dataset(self, split, max_len, tokenizer, cheat_rate=0, max_num_examples=-1, ctx=None):
-        trans_list = self.build_data_transformer(max_len, tokenizer, cheat_rate=cheat_rate)
         dataset = self.task(split, max_num_examples=max_num_examples)
+        if cheat_rate >= 0:
+            trans = self.build_cheat_transformer(cheat_rate)
+            # Make sure we have the same data
+            trans.reset()
+            dataset = dataset.transform(trans, lazy=False)
+        trans_list = self.build_data_transformer(max_len, tokenizer, cheat_rate=cheat_rate)
         for trans in trans_list:
             dataset = dataset.transform(trans)
         # Last transform
@@ -145,11 +149,11 @@ class NLIRunner(Runner):
         return data_loader, num_samples
 
     def prepare_data(self, data, ctx):
-        input_ids, valid_len, type_ids, label = data
+        id_, input_ids, valid_len, type_ids, label = data
         inputs = (input_ids.as_in_context(ctx), type_ids.as_in_context(ctx),
                   valid_len.astype('float32').as_in_context(ctx))
         label = label.as_in_context(ctx)
-        return inputs, label
+        return id_, inputs, label
 
     def evaluate(self, data_loader, model, metric, ctx):
         """Evaluate the model on validation dataset.
@@ -160,14 +164,17 @@ class NLIRunner(Runner):
         preds = []
         labels = []
         scores = None
+        ids = None
         for _, seqs in enumerate(data_loader):
             Ls = []
-            inputs, label = self.prepare_data(seqs, ctx)
+            id_, inputs, label = self.prepare_data(seqs, ctx)
             out = model(*inputs)
             if scores is None:
                 scores = out
+                ids = id_
             else:
                 scores = mx.nd.concat(scores, out, dim=0)
+                ids = mx.nd.concat(ids, id_, dim=0)
             _preds = mx.ndarray.argmax(out, axis=1)
             preds.extend(_preds.asnumpy().astype('int32'))
             labels.extend(label[:,0].asnumpy())
@@ -176,8 +183,7 @@ class NLIRunner(Runner):
         loss /= len(data_loader)
         metric = metric_to_dict(metric)
         metric['loss'] = loss
-        scores = scores.asnumpy().astype('float32')
-        return metric, preds, labels, scores
+        return metric, preds, labels, scores, ids
 
     def train(self, args, model, train_data, dev_data, num_train_examples, ctx):
         task = self.task
@@ -247,7 +253,7 @@ class NLIRunner(Runner):
                 trainer_b.set_learning_rate(new_lr)
                 # forward and backward
                 with mx.autograd.record():
-                    inputs, label = self.prepare_data(seqs, ctx)
+                    id_, inputs, label = self.prepare_data(seqs, ctx)
                     out = model(*inputs)
                     ls = loss_function(out, label).mean()
                 ls.backward()
@@ -272,7 +278,7 @@ class NLIRunner(Runner):
                     step_loss = 0
             mx.nd.waitall()
 
-            dev_metrics, _, _, _ = self.evaluate(dev_data, model, metric, ctx)
+            dev_metrics, _, _, _, _ = self.evaluate(dev_data, model, metric, ctx)
             dev_loss = dev_metrics['loss']
             if dev_loss < best_dev_loss:
                 best_dev_loss = dev_loss
@@ -306,34 +312,44 @@ class AdditiveNLIRunner(NLIRunner):
         self.prev_args = prev_args
         super().__init__(task, runs_dir, run_id)
 
-    def run_prev_model(self, split, ctx):
+    def run_prev_model(self, split, cheat_rate, max_num_examples, ctx):
         logger.info('running previous model on {}'.format(split))
         self.prev_args.test_split = split
-        _, prev_scores = self.prev_runner.run_test(self.prev_args, ctx)
-        return prev_scores
+        self.prev_args.cheat = cheat_rate
+        self.prev_args.max_num_examples = max_num_examples
+        _, prev_scores, ids = self.prev_runner.run_test(self.prev_args, ctx)
+        return prev_scores, ids
 
     def build_dataset(self, split, max_len, tokenizer, cheat_rate=0, max_num_examples=-1, ctx=None):
         dataset, data_lengths, batchify_fn = super().build_dataset(split, max_len, tokenizer, cheat_rate, max_num_examples)
-        prev_scores = self.run_prev_model(split, ctx)
+        prev_scores, ids = self.run_prev_model(split, cheat_rate, max_num_examples, ctx)
+        prev_scores = {id_.asscalar(): prev_scores[i] for i, id_ in enumerate(ids)}
         assert len(dataset) == len(prev_scores)
+        reordered_prev_scores = []
+        for data in dataset:
+            id_ = data[0]
+            reordered_prev_scores.append(prev_scores[id_])
+        prev_scores = mx.nd.stack(*reordered_prev_scores, axis=0)
+        prev_scores = prev_scores.asnumpy()
         batchify_fn = nlp.data.batchify.Tuple(nlp.data.batchify.Stack(), batchify_fn)
         return mx.gluon.data.ArrayDataset(prev_scores, dataset), data_lengths, batchify_fn
 
     def prepare_data(self, data, ctx):
         prev_scores, model_data = data
         prev_scores = prev_scores.astype('float32').as_in_context(ctx)
-        inputs, label = super().prepare_data(model_data, ctx)
-        return [prev_scores, inputs], label
+        id_, inputs, label = super().prepare_data(model_data, ctx)
+        return id_, [prev_scores, inputs], label
 
     def evaluate(self, data_loader, model, metric, ctx):
-        metric_dict, preds, labels, scores = super().evaluate(data_loader, model, metric, ctx)
+        metric_dict, preds, labels, scores, ids = super().evaluate(data_loader, model, metric, ctx)
         original_mode = model.mode
         for mode in ('all', 'prev', 'last'):
             if mode != original_mode:
+                model.mode = mode
                 metric.reset()
-                _metric_dict, _, _, _ = super().evaluate(data_loader, model, metric, ctx)
+                _metric_dict, _, _, _, _ = super().evaluate(data_loader, model, metric, ctx)
                 for k, v in _metric_dict.items():
-                    metric_dict['{}_{}'.format(mode, k)] = v
+                    metric_dict['{}_{}'.format(model.mode, k)] = v
         model.mode = original_mode
-        return metric_dict, preds, labels, scores
+        return metric_dict, preds, labels, scores, ids
 

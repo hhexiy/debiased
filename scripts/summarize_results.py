@@ -15,12 +15,19 @@ def parse_file(path):
     cheat = float(res['config']['cheat'])
     superficial = int(res['config']['superficial'])
     val_acc = res['train']['best_val_results']['accuracy']
-    return {
+    report = {
             'data': data,
             'cheat': cheat,
             'sup': superficial,
             'val_acc': val_acc,
            }
+    if res['config']['additive']:
+        report['last_val_acc'] = res['train']['best_val_results']['last_accuracy']
+        report['prev_val_acc'] = res['train']['best_val_results']['prev_accuracy']
+    else:
+        report['last_val_acc'] = -1
+        report['prev_val_acc'] = -1
+    return report
 
 def main(args):
     files = []
@@ -30,7 +37,10 @@ def main(args):
     columns = [('data', 10, 's'),
                ('sup', 10, 'd'),
                ('cheat', 10, '.1f'),
-               ('val_acc', 10, '.2f')]
+               ('val_acc', 10, '.2f'),
+               ('last_val_acc', 10, '.2f'),
+               ('prev_val_acc', 10, '.2f'),
+              ]
     header = ''.join(['{{:<{w}s}}'.format(w=width)
                       for _, width, _ in columns])
     header = header.format(*[c[0] for c in columns])

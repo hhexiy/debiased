@@ -8,7 +8,7 @@ bs=32
 interval=5000
 test-split=dev
 num_ex=-1
-cheat_rate=0
+cheat_rate=-1
 mxnet_home=~/.mxnet
 
 preprocess:

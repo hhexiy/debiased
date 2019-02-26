@@ -428,6 +428,24 @@ class SNLIDataset(GLUEDataset):
         return Accuracy()
 
 @register(segment=['train', 'dev', 'test'])
+class SNLIHaohanDataset(SNLIDataset):
+    def __init__(self,
+                 segment='train',
+                 root=os.path.join(os.getenv('GLUE_DIR', 'glue_data'),
+                                   'SNLI-haohan'),
+                 max_num_examples=-1):  #pylint: disable=c0330
+        super().__init__(segment, root, max_num_examples)
+
+    @staticmethod
+    def get_labels():
+        return ['neutral', 'entailment', 'contradiction']
+
+    @staticmethod
+    def get_metric():
+        return Accuracy()
+
+
+@register(segment=['train', 'dev', 'test'])
 class WNLIDataset(GLUEDataset):
     """Class for Winograd NLI task
 

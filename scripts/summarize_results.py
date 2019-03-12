@@ -13,12 +13,14 @@ def parse_file(path):
     res = json.load(open(path))
     data = res['config']['task_name']
     cheat = float(res['config']['cheat'])
+    wdrop = float(res['config'].get('word_dropout', 0))
     superficial = int(res['config']['superficial'])
     val_acc = res['train']['best_val_results']['accuracy']
     report = {
             'data': data,
             'cheat': cheat,
             'sup': superficial,
+            'wdrop': wdrop,
             'val_acc': val_acc,
            }
     if res['config']['additive']:
@@ -37,6 +39,7 @@ def main(args):
     columns = [('data', 10, 's'),
                ('sup', 10, 'd'),
                ('cheat', 10, '.1f'),
+               ('wdrop', 10, '.1f'),
                ('val_acc', 10, '.2f'),
                ('last_val_acc', 10, '.2f'),
                ('prev_val_acc', 10, '.2f'),

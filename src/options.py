@@ -60,6 +60,10 @@ def add_model_arguments(parser):
                         help='use the last model instead of the best modal on the dev set')
     group.add_argument('--additive-mode', choices=['prev', 'last', 'all'], default='all',
                         help='use which classifier')
+    group.add_argument('--word-dropout', type=float, default=0,
+                        help='word dropout rate.')
+    group.add_argument('--word-dropout-region', nargs='+', default=None,
+                        help='where to dropout words. None means everywhere.')
 
 def add_training_arguments(parser):
     group = parser.add_argument_group('Training')
@@ -79,5 +83,7 @@ def add_training_arguments(parser):
                         help='fix pretrained word embedding during training')
     group.add_argument('--optimizer', default='adam',
                         help='optimization algorithm')
-    group.add_argument('--warmup_ratio', type=float, default=0.1,
+    group.add_argument('--warmup-ratio', type=float, default=0.1,
                         help='ratio of warmup steps used in NOAM\'s stepsize schedule')
+    group.add_argument('--noising-by-epoch', action='store_true',
+                        help='should data noising (e.g. word dropout) be applied every epoch')

@@ -17,7 +17,7 @@ import gluonnlp as nlp
 
 from .model.bert import BERTClassifier, BERTRegression
 from .dataset import MRPCDataset, QQPDataset, RTEDataset, \
-    STSBDataset, ClassificationTransform, RegressionTransform, SNLISuperficialTransform, AdditiveTransform, SNLICheatTransform, \
+    STSBDataset, ClassificationTransform, RegressionTransform, SNLISuperficialTransform, AdditiveTransform, SNLICheatTransform, SNLIWordDropTransform, \
     QNLIDataset, COLADataset, SNLIDataset, MNLIDataset, WNLIDataset, SSTDataset
 from .options import add_default_arguments, add_data_arguments, add_logging_arguments, \
     add_model_arguments, add_training_arguments
@@ -80,13 +80,25 @@ class NLIRunner(Runner):
         else:
             self.run_test(args, ctx)
 
+    def preprocess_dataset(self, split, cheat_rate, max_num_examples):
+        logger.info('preprocess {} data'.format(split))
+        dataset = self.task(split, max_num_examples=max_num_examples)
+        if cheat_rate >= 0:
+            trans = self.build_cheat_transformer(cheat_rate)
+            # Make sure we have the same data
+            trans.reset()
+            dataset = dataset.transform(trans, lazy=False)
+        return dataset
+
     def run_train(self, args, ctx):
         model, vocab, tokenizer = build_model(args, args, ctx)
         self.dump_vocab(vocab)
-        train_data, num_train_examples = self.build_data_loader(args.train_split, args.batch_size, args.max_len, tokenizer, test=False, cheat_rate=args.cheat, max_num_examples=args.max_num_examples, ctx=ctx)
+
+        train_dataset = self.preprocess_dataset(args.train_split, args.cheat, args.max_num_examples)
         # NOTE: If cheating is enabled, we want to randomize the cheating feature at test time (cheat_rate = 0); otherwise, we don't want cheating features.
-        dev_data, _ = self.build_data_loader(args.test_split, args.batch_size, args.max_len, tokenizer, test=True, max_num_examples=args.max_num_examples, cheat_rate=0 if args.cheat > 0 else -1, ctx=ctx)
-        self.train(args, model, train_data, dev_data, num_train_examples, ctx)
+        dev_dataset = self.preprocess_dataset(args.test_split, 0 if args.cheat > 0 else -1, args.max_num_examples)
+
+        self.train(args, model, train_dataset, dev_dataset, ctx, tokenizer, args.noising_by_epoch)
 
     def run_test(self, args, ctx):
         config = json.load(
@@ -111,19 +123,18 @@ class NLIRunner(Runner):
             tokenizer, self.labels, max_len, pad=False, pair=True)
         return trans
 
-    def build_data_transformer(self, max_len, tokenizer, cheat_rate=0):
+    def build_data_transformer(self, max_len, tokenizer, word_dropout, word_dropout_region):
         trans_list = []
+        if word_dropout > 0:
+            if word_dropout_region is None:
+                word_dropout_region = ('premise', 'hypothesis')
+            trans_list.append(SNLIWordDropTransform(rate=word_dropout, region=word_dropout_region))
         trans_list.append(self.build_model_transformer(max_len, tokenizer))
         return [x for x in trans_list if x]
 
-    def build_dataset(self, split, max_len, tokenizer, cheat_rate=0, max_num_examples=-1, ctx=None):
-        dataset = self.task(split, max_num_examples=max_num_examples)
-        if cheat_rate >= 0:
-            trans = self.build_cheat_transformer(cheat_rate)
-            # Make sure we have the same data
-            trans.reset()
-            dataset = dataset.transform(trans, lazy=False)
-        trans_list = self.build_data_transformer(max_len, tokenizer, cheat_rate=cheat_rate)
+    def build_dataset(self, data, max_len, tokenizer, word_dropout=0, word_dropout_region=None, ctx=None):
+        trans_list = self.build_data_transformer(max_len, tokenizer, word_dropout, word_dropout_region)
+        dataset = data
         for trans in trans_list:
             dataset = dataset.transform(trans)
         # Last transform
@@ -132,11 +143,8 @@ class NLIRunner(Runner):
         batchify_fn = trans.get_batcher()
         return dataset, data_lengths, batchify_fn
 
-    def build_data_loader(self, split, batch_size, max_len, tokenizer, test=False, cheat_rate=0, max_num_examples=-1, ctx=None):
-        logger.info('building data loader for data split={}'.format(split))
-
-        dataset, data_lengths, batchify_fn = self.build_dataset(split, max_len, tokenizer, cheat_rate, max_num_examples, ctx=ctx)
-        num_samples = len(dataset)
+    def build_data_loader(self, dataset, batch_size, max_len, tokenizer, test=False, word_dropout=0, word_dropout_region=None, ctx=None):
+        dataset, data_lengths, batchify_fn = self.build_dataset(dataset, max_len, tokenizer, word_dropout, word_dropout_region, ctx=ctx)
 
         batch_sampler = nlp.data.FixedBucketSampler(lengths=data_lengths,
                                                     batch_size=batch_size,
@@ -146,7 +154,7 @@ class NLIRunner(Runner):
         data_loader = gluon.data.DataLoader(dataset=dataset,
                                            batch_sampler=batch_sampler,
                                            batchify_fn=batchify_fn)
-        return data_loader, num_samples
+        return data_loader
 
     def prepare_data(self, data, ctx):
         id_, input_ids, valid_len, type_ids, label = data
@@ -185,10 +193,11 @@ class NLIRunner(Runner):
         metric['loss'] = loss
         return metric, preds, labels, scores, ids
 
-    def train(self, args, model, train_data, dev_data, num_train_examples, ctx):
+    def train(self, args, model, train_dataset, dev_dataset, ctx, tokenizer, data_noising_by_epoch):
         task = self.task
         loss_function = self.loss_function
         metric = task.get_metric()
+        num_train_examples = len(train_dataset)
 
         model.initialize(init=mx.init.Normal(0.02), ctx=ctx, force_reinit=False)
         model.hybridize(static_alloc=True)
@@ -236,10 +245,17 @@ class NLIRunner(Runner):
         best_dev_loss = float('inf')
         checkpoints_dir = get_dir(os.path.join(self.outdir, 'checkpoints'))
 
+        train_data = self.build_data_loader(train_dataset, args.batch_size, args.max_len, tokenizer, test=False, word_dropout=args.word_dropout, word_dropout_region=args.word_dropout_region, ctx=ctx)
+        dev_data = self.build_data_loader(dev_dataset, args.batch_size, args.max_len, tokenizer, test=True, word_dropout=0, ctx=ctx)
+
         for epoch_id in range(args.epochs):
             metric.reset()
             step_loss = 0
             tic = time.time()
+
+            if data_noising_by_epoch and epoch_id > 0:
+                train_data = self.build_data_loader(train_dataset, args.batch_size, args.max_len, tokenizer, test=False, word_dropout=args.word_dropout, word_dropout_region=args.word_dropout_region, ctx=ctx)
+
             for batch_id, seqs in enumerate(train_data):
                 step_num += 1
                 # learning rate schedule
@@ -320,8 +336,8 @@ class AdditiveNLIRunner(NLIRunner):
         _, prev_scores, ids = self.prev_runner.run_test(self.prev_args, ctx)
         return prev_scores, ids
 
-    def build_dataset(self, split, max_len, tokenizer, cheat_rate=0, max_num_examples=-1, ctx=None):
-        dataset, data_lengths, batchify_fn = super().build_dataset(split, max_len, tokenizer, cheat_rate, max_num_examples)
+    def build_dataset(self, split, max_len, tokenizer, cheat_rate=0, word_dropout=0, word_dropout_region=None, max_num_examples=-1, ctx=None):
+        dataset, data_lengths, batchify_fn = super().build_dataset(split, max_len, tokenizer, cheat_rate, word_dropout, word_dropout_region, max_num_examples)
         prev_scores, ids = self.run_prev_model(split, cheat_rate, max_num_examples, ctx)
         prev_scores = {id_.asscalar(): prev_scores[i] for i, id_ in enumerate(ids)}
         assert len(dataset) == len(prev_scores)

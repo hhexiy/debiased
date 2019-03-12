@@ -752,21 +752,23 @@ class SNLICheatTransform(object):
 
 
 class SNLIWordDropTransform(object):
-    def __init__(self, rate=0., sentences=('premise', 'hypothesis')):
+    def __init__(self, rate=0., region=('premise', 'hypothesis'), tokenizer=str.split):
         self.rate = rate
-        self.sentences = sentences
+        self.region = region
+        self.tokenizer = tokenizer
 
     def dropout(self, seq):
-        mask = np.binomial(n=1, p=self.rate, size=len(seq))
-        return [s for m, s in zip(mask, seq) if m == 1]
+        mask = np.random.binomial(n=1, p=1-self.rate, size=len(seq))
+        seq = [s for m, s in zip(mask, seq) if m == 1]
+        return seq
 
     def __call__(self, line):
-        premise, hypothesis, label = line[0], line[1], line[2]
-        if 'premise' in self.sentences:
-            premise = self.dropout(premise)
-        if 'hypothesis' in self.sentences:
-            hypothesis = self.dropout(hypothesis)
-        line = [premise, hypothesis, label]
+        idx, premise, hypothesis, label = line[0], line[1], line[2], line[3]
+        if 'premise' in self.region:
+            premise = ' '.join(self.dropout(self.tokenizer(premise)))
+        if 'hypothesis' in self.region:
+            hypothesis = ' '.join(self.dropout(self.tokenizer(hypothesis)))
+        line = [idx, premise, hypothesis, label]
         return line
 
 

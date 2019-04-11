@@ -22,6 +22,8 @@ __all__ = [
 
 import os
 import numpy as np
+import glob
+import random
 from mxnet.metric import Accuracy, F1, MCC, PearsonCorrelation, CompositeEvalMetric
 try:
     from tokenizer import convert_to_unicode
@@ -30,7 +32,6 @@ except ImportError:
 from gluonnlp.data import TSVDataset
 from gluonnlp.data.registry import register
 import gluonnlp as nlp
-import random
 
 
 @register(segment=['train', 'dev', 'test'])
@@ -417,17 +418,39 @@ class SNLIDataset(GLUEDataset):
         super(SNLIDataset, self).__init__(
             path, num_discard_samples=1, fields=fields, max_num_examples=max_num_examples)
 
-    @staticmethod
-    def get_labels():
+    @classmethod
+    def get_labels(cls):
         """Get classification label ids of the dataset."""
         return ['neutral', 'entailment', 'contradiction']
 
-    @staticmethod
-    def get_metric():
+    @classmethod
+    def get_metric(cls):
         """Get metrics Accuracy"""
         return Accuracy()
 
-@register(segment=['train', 'dev', 'test'])
+
+class MNLIStressTestDataset(SNLIDataset):
+    def __init__(self,
+                 segment='Antonym,matched',
+                 root=os.path.join(os.getenv('GLUE_DIR', 'glue_data'),
+                                   'MNLI-stress'),
+                 max_num_examples=-1):  #pylint: disable=c0330
+        self._supported_segments = ['{},{}'.format(segment, type_) for segment in ('Antonym', 'Length_Mismatch', 'Negation', 'Numerical_Reasoning', 'Spelling_Error', 'Word_Overlap') for type_ in ('matched', 'mismatched')]
+        assert segment in self._supported_segments, 'Unsupported segment: %s' % segment
+        segment, type_ = segment.split(',')
+
+        if segment == 'Numerical_Reasoning':
+            path = glob.glob(os.path.join(root, segment, '*_.tsv'))
+            A_IDX, B_IDX, LABEL_IDX = 1, 2, 0
+        else:
+            path = glob.glob(os.path.join(root, segment, '*_{}.tsv'.format(type_)))
+            A_IDX, B_IDX, LABEL_IDX = 5, 6, 0
+
+        fields = [A_IDX, B_IDX, LABEL_IDX]
+        super(SNLIDataset, self).__init__(
+            path, num_discard_samples=1, fields=fields, max_num_examples=max_num_examples)
+
+
 class SNLIHaohanDataset(SNLIDataset):
     def __init__(self,
                  segment='train',

@@ -80,7 +80,7 @@ class NLIRunner(Runner):
         else:
             self.run_test(args, ctx)
 
-    def preprocess_dataset(self, split, cheat_rate, max_num_examples):
+    def preprocess_dataset(self, split, cheat_rate, max_num_examples, ctx=None):
         logger.info('preprocess {} data'.format(split))
         dataset = self.task(split, max_num_examples=max_num_examples)
         if cheat_rate >= 0:
@@ -94,18 +94,20 @@ class NLIRunner(Runner):
         model, vocab, tokenizer = build_model(args, args, ctx)
         self.dump_vocab(vocab)
 
-        train_dataset = self.preprocess_dataset(args.train_split, args.cheat, args.max_num_examples)
+        train_dataset = self.preprocess_dataset(args.train_split, args.cheat, args.max_num_examples, ctx)
         # NOTE: If cheating is enabled, we want to randomize the cheating feature at test time (cheat_rate = 0); otherwise, we don't want cheating features.
-        dev_dataset = self.preprocess_dataset(args.test_split, 0 if args.cheat > 0 else -1, args.max_num_examples)
+        dev_dataset = self.preprocess_dataset(args.test_split, 0 if args.cheat > 0 else -1, args.max_num_examples, ctx)
 
         self.train(args, model, train_dataset, dev_dataset, ctx, tokenizer, args.noising_by_epoch)
 
-    def run_test(self, args, ctx):
-        config = json.load(
-            open(os.path.join(args.init_from, 'report.json')))['config']
-        model_args = argparse.Namespace(**config)
+    def run_test(self, args, ctx, dataset=None):
+        model_args = read_args(args.init_from)
         model, vocab, tokenizer = load_model(args, model_args, args.init_from, ctx)
-        test_data, num_examples = self.build_data_loader(args.test_split, args.eval_batch_size, model_args.max_len, tokenizer, test=True, max_num_examples=args.max_num_examples, cheat_rate=args.cheat, ctx=ctx)
+        if dataset:
+            test_dataset = dataset
+        else:
+            test_dataset = self.preprocess_dataset(args.test_split, 0 if args.cheat > 0 else -1, args.max_num_examples, ctx)
+        test_data = self.build_data_loader(test_dataset, args.eval_batch_size, model_args.max_len, tokenizer, test=True, ctx=ctx)
         metrics, preds, labels, scores, ids = self.evaluate(test_data, model, self.task.get_metric(), ctx)
         logger.info(metric_dict_to_str(metrics))
         self.update_report(('test', args.test_split), metrics)
@@ -157,6 +159,8 @@ class NLIRunner(Runner):
         return data_loader
 
     def prepare_data(self, data, ctx):
+        """Batched data to model inputs.
+        """
         id_, input_ids, valid_len, type_ids, label = data
         inputs = (input_ids.as_in_context(ctx), type_ids.as_in_context(ctx),
                   valid_len.astype('float32').as_in_context(ctx))
@@ -328,27 +332,48 @@ class AdditiveNLIRunner(NLIRunner):
         self.prev_args = prev_args
         super().__init__(task, runs_dir, run_id)
 
-    def run_prev_model(self, split, cheat_rate, max_num_examples, ctx):
-        logger.info('running previous model on {}'.format(split))
-        self.prev_args.test_split = split
-        self.prev_args.cheat = cheat_rate
-        self.prev_args.max_num_examples = max_num_examples
-        _, prev_scores, ids = self.prev_runner.run_test(self.prev_args, ctx)
+    # TODO: take dataset as an argument
+    def run_prev_model(self, dataset, ctx):
+        logger.info('running previous model on preprocessed dataset')
+        #self.prev_args.test_split = split
+        #self.prev_args.cheat = cheat_rate
+        #self.prev_args.max_num_examples = max_num_examples
+        _, prev_scores, ids = self.prev_runner.run_test(self.prev_args, ctx, dataset)
         return prev_scores, ids
 
-    def build_dataset(self, split, max_len, tokenizer, cheat_rate=0, word_dropout=0, word_dropout_region=None, max_num_examples=-1, ctx=None):
-        dataset, data_lengths, batchify_fn = super().build_dataset(split, max_len, tokenizer, cheat_rate, word_dropout, word_dropout_region, max_num_examples)
-        prev_scores, ids = self.run_prev_model(split, cheat_rate, max_num_examples, ctx)
-        prev_scores = {id_.asscalar(): prev_scores[i] for i, id_ in enumerate(ids)}
+    def preprocess_dataset(self, split, cheat_rate, max_num_examples, ctx=None):
+        """Add scores from previous classifiers.
+        """
+        dataset = super().preprocess_dataset(split, cheat_rate, max_num_examples)
+
+        # TODO: use preprocessed dataset
+        prev_scores, ids = self.run_prev_model(dataset, ctx)
         assert len(dataset) == len(prev_scores)
+
+        # Reorder scores by example id
+        prev_scores = {id_.asscalar(): prev_scores[i] for i, id_ in enumerate(ids)}
         reordered_prev_scores = []
         for data in dataset:
             id_ = data[0]
             reordered_prev_scores.append(prev_scores[id_])
         prev_scores = mx.nd.stack(*reordered_prev_scores, axis=0)
         prev_scores = prev_scores.asnumpy()
+
+        return (prev_scores, dataset)
+
+    def build_dataset(self, data, max_len, tokenizer, word_dropout=0, word_dropout_region=None, ctx=None):
+        trans_list = self.build_data_transformer(max_len, tokenizer, word_dropout, word_dropout_region)
+        prev_scores, dataset = data
+        for trans in trans_list:
+            dataset = dataset.transform(trans)
+        # Last transform
+        trans = trans_list[-1]
+        data_lengths = dataset.transform(trans.get_length)
+        batchify_fn = trans.get_batcher()
+        # Combine with prev_scores
         batchify_fn = nlp.data.batchify.Tuple(nlp.data.batchify.Stack(), batchify_fn)
-        return mx.gluon.data.ArrayDataset(prev_scores, dataset), data_lengths, batchify_fn
+        dataset = mx.gluon.data.ArrayDataset(prev_scores, dataset)
+        return dataset, data_lengths, batchify_fn
 
     def prepare_data(self, data, ctx):
         prev_scores, model_data = data
@@ -357,15 +382,18 @@ class AdditiveNLIRunner(NLIRunner):
         return id_, [prev_scores, inputs], label
 
     def evaluate(self, data_loader, model, metric, ctx):
-        metric_dict, preds, labels, scores, ids = super().evaluate(data_loader, model, metric, ctx)
         original_mode = model.mode
+        metric_dict = metric_to_dict(metric)
+        results = {}
         for mode in ('all', 'prev', 'last'):
-            if mode != original_mode:
-                model.mode = mode
-                metric.reset()
-                _metric_dict, _, _, _, _ = super().evaluate(data_loader, model, metric, ctx)
-                for k, v in _metric_dict.items():
-                    metric_dict['{}_{}'.format(model.mode, k)] = v
+            logger.info('evaluating additive model with mode={}'.format(mode))
+            model.mode = mode
+            metric.reset()
+            _metric_dict, preds, labels, scores, ids = super().evaluate(data_loader, model, metric, ctx)
+            results[mode] = (_metric_dict, preds, labels, scores, ids)
+            for k, v in _metric_dict.items():
+                metric_dict['{}_{}'.format(model.mode, k)] = v
         model.mode = original_mode
+        _, preds, labels, scores, ids = results[original_mode]
         return metric_dict, preds, labels, scores, ids
 

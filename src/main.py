@@ -76,17 +76,17 @@ def parse_args():
     add_training_arguments(parser)
     return parser.parse_args()
 
-def get_runner(args, task, output_dir=None):
+def get_runner(args, model_args, task, output_dir=None):
     if not output_dir:
         output_dir = args.output_dir
-    if args.superficial:
+    if model_args.superficial:
         runner = SuperficialNLIRunner(task, output_dir, args.exp_id)
-    elif args.additive:
-        prev_args = read_args(args.additive)
+    elif model_args.additive:
+        prev_args = read_args(model_args.additive)
         # Change to inference model
-        prev_args.init_from = args.additive
+        prev_args.init_from = model_args.additive
         prev_args.dropout = 0.0
-        prev_runner = get_runner(prev_args, task, '/tmp')
+        prev_runner = get_runner(args, prev_args, task, output_dir='/tmp/{}'.format(args.exp_id))
         runner = AdditiveNLIRunner(task, output_dir, prev_runner, prev_args, args.exp_id)
     else:
         runner = NLIRunner(task, output_dir, args.exp_id)
@@ -103,7 +103,7 @@ def main(args):
 
     task = tasks[args.task_name]
 
-    runner = get_runner(model_args, task)
+    runner = get_runner(args, model_args, task)
 
     pool_type = os.environ.get('MXNET_GPU_MEM_POOL_TYPE', '')
     if pool_type.lower() == 'round':

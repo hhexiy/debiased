@@ -1,7 +1,7 @@
 from .dataset import MRPCDataset, QQPDataset, RTEDataset, \
     STSBDataset, \
     QNLIDataset, COLADataset, SNLIDataset, MNLIDataset, WNLIDataset, SSTDataset, \
-    SNLIHaohanDataset
+    SNLIHaohanDataset, MNLIStressTestDataset
 
 tasks = {
     'MRPC': MRPCDataset,
@@ -11,6 +11,7 @@ tasks = {
     'STS-B': STSBDataset,
     'CoLA': COLADataset,
     'MNLI': MNLIDataset,
+    'MNLI-stress': MNLIStressTestDataset,
     'SNLI': SNLIDataset,
     'SNLI-haohan': SNLIHaohanDataset,
     'WNLI': WNLIDataset,

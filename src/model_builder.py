@@ -40,16 +40,17 @@ class VocabBuilder(object):
         return vocab
 
 
-def build_cbow_model(args, ctx, dataset):
+def build_cbow_model(args, ctx, dataset, vocab=None):
     tokenizer = nlp.data.SpacyTokenizer('en')
-    vocab = VocabBuilder(tokenizer).build_vocab(dataset)
+    if vocab is None:
+        vocab = VocabBuilder(tokenizer).build_vocab(dataset)
     task_name = args.task_name
     num_classes = len(tasks[task_name].get_labels())
     model = NLICBOWClassifier(len(vocab), num_classes, args.embedding_size, args.hidden_size, args.num_layers, dropout=args.dropout)
     return model, vocab, tokenizer
 
 
-def build_bert_model(args, ctx):
+def build_bert_model(args, ctx, vocab=None):
     dataset = 'book_corpus_wiki_en_uncased'
     bert, vocabulary = bert_12_768_12(
         dataset_name=dataset,
@@ -58,6 +59,8 @@ def build_bert_model(args, ctx):
         use_pooler=True,
         use_decoder=False,
         use_classifier=False)
+    if vocab:
+        vocabulary = vocab
     task_name = args.task_name
     num_classes = len(tasks[task_name].get_labels())
     model = BERTClassifier(bert, num_classes=num_classes, dropout=args.dropout)
@@ -66,21 +69,21 @@ def build_bert_model(args, ctx):
     return model, vocabulary, tokenizer
 
 def load_model(args, model_args, path, ctx):
-    model, _, tokenizer = build_model(args, model_args, ctx)
+    vocab = nlp.Vocab.from_json(
+        open(os.path.join(path, 'vocab.jsons')).read())
+    model, _, tokenizer = build_model(args, model_args, ctx, vocab=vocab)
     params_file = 'last.params' if args.use_last else 'valid_best.params'
     logger.info('load model from {}'.format(os.path.join(
         path, 'checkpoints', params_file)))
     model.load_parameters(os.path.join(
         path, 'checkpoints', params_file), ctx=ctx)
-    vocab = nlp.Vocab.from_json(
-        open(os.path.join(path, 'vocab.jsons')).read())
     return model, vocab, tokenizer
 
-def build_model(args, model_args, ctx, dataset=None):
+def build_model(args, model_args, ctx, dataset=None, vocab=None):
     if hasattr(args, 'model_type') and args.model_type == 'cbow':
-        model, vocabulary, tokenizer = build_cbow_model(model_args, ctx, dataset)
+        model, vocabulary, tokenizer = build_cbow_model(model_args, ctx, dataset, vocab=vocab)
     else:
-        model, vocabulary, tokenizer = build_bert_model(model_args, ctx)
+        model, vocabulary, tokenizer = build_bert_model(model_args, ctx, vocab=vocab)
 
     if model_args.additive:
         model = AdditiveClassifier(model, mode=args.additive_mode)

@@ -88,6 +88,8 @@ def get_runner(args, model_args, task, output_dir=None):
         prev_args.dropout = 0.0
         prev_runner = get_runner(args, prev_args, task, output_dir='/tmp/{}'.format(args.exp_id))
         runner = AdditiveNLIRunner(task, output_dir, prev_runner, prev_args, args.exp_id)
+    elif hasattr(model_args, 'model_type') and model_args.model_type == 'cbow':
+        runner = CBOWNLIRunner(task, output_dir, args.exp_id)
     else:
         runner = NLIRunner(task, output_dir, args.exp_id)
     return runner

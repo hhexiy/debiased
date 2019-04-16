@@ -17,7 +17,9 @@ import gluonnlp as nlp
 
 from .model.bert import BERTClassifier, BERTRegression
 from .dataset import MRPCDataset, QQPDataset, RTEDataset, \
-    STSBDataset, ClassificationTransform, RegressionTransform, SNLISuperficialTransform, AdditiveTransform, SNLICheatTransform, SNLIWordDropTransform, \
+    STSBDataset, ClassificationTransform, RegressionTransform, \
+    SNLISuperficialTransform, SNLICheatTransform, SNLIWordDropTransform, \
+    CBOWTransform, \
     QNLIDataset, COLADataset, SNLIDataset, MNLIDataset, WNLIDataset, SSTDataset
 from .options import add_default_arguments, add_data_arguments, add_logging_arguments, \
     add_model_arguments, add_training_arguments
@@ -65,6 +67,7 @@ class NLIRunner(Runner):
         super().__init__(task, runs_dir, run_id)
         self.loss_function = gluon.loss.SoftmaxCELoss()
         self.labels = task.get_labels()
+        self.vocab = None
 
     def run(self, args):
         self.update_report(('config',), vars(args))
@@ -91,18 +94,20 @@ class NLIRunner(Runner):
         return dataset
 
     def run_train(self, args, ctx):
-        model, vocab, tokenizer = build_model(args, args, ctx)
-        self.dump_vocab(vocab)
-
         train_dataset = self.preprocess_dataset(args.train_split, args.cheat, args.max_num_examples, ctx)
         # NOTE: If cheating is enabled, we want to randomize the cheating feature at test time (cheat_rate = 0); otherwise, we don't want cheating features.
         dev_dataset = self.preprocess_dataset(args.test_split, 0 if args.cheat > 0 else -1, args.max_num_examples, ctx)
+
+        model, vocab, tokenizer = build_model(args, args, ctx, train_dataset)
+        self.dump_vocab(vocab)
+        self.vocab = vocab
 
         self.train(args, model, train_dataset, dev_dataset, ctx, tokenizer, args.noising_by_epoch)
 
     def run_test(self, args, ctx, dataset=None):
         model_args = read_args(args.init_from)
         model, vocab, tokenizer = load_model(args, model_args, args.init_from, ctx)
+        self.vocab = vocab
         if dataset:
             test_dataset = dataset
         else:
@@ -197,19 +202,37 @@ class NLIRunner(Runner):
         metric['loss'] = loss
         return metric, preds, labels, scores, ids
 
+    def get_optimizer_params(self, optimizer, lr, param_type='weight'):
+        assert param_type in ('weight', 'bias')
+        if optimizer == 'bertadam':
+            if param_type == 'weight':
+                return {'learning_rate': lr, 'epsilon': 1e-6, 'wd': 0.01}
+            else:
+                return {'learning_rate': lr, 'epsilon': 1e-6, 'wd': 0.0}
+        if optimizer == 'adagrad':
+            if param_type == 'weight':
+                return {'learning_rate': lr, 'wd': 0.0}
+            else:
+                return {'learning_rate': lr, 'wd': 0.0}
+
+    def initialize_model(self, args, model, ctx):
+        model.initialize(init=mx.init.Normal(0.02), ctx=ctx, force_reinit=False)
+
     def train(self, args, model, train_dataset, dev_dataset, ctx, tokenizer, data_noising_by_epoch):
         task = self.task
         loss_function = self.loss_function
         metric = task.get_metric()
         num_train_examples = len(train_dataset)
 
-        model.initialize(init=mx.init.Normal(0.02), ctx=ctx, force_reinit=False)
+        self.initialize_model(args, model, ctx)
+
         model.hybridize(static_alloc=True)
         loss_function.hybridize(static_alloc=True)
 
+        # TODO: refactor this as get_trainer
         lr = args.lr
-        optimizer_params_w = {'learning_rate': lr, 'epsilon': 1e-6, 'wd': 0.01}
-        optimizer_params_b = {'learning_rate': lr, 'epsilon': 1e-6, 'wd': 0.0}
+        optimizer_params_w = self.get_optimizer_params(args.optimizer, args.lr, 'weight')
+        optimizer_params_b = self.get_optimizer_params(args.optimizer, args.lr, 'bias')
         try:
             trainer_w = gluon.Trainer(
                 model.collect_params('.*weight'),
@@ -323,6 +346,30 @@ class SuperficialNLIRunner(NLIRunner):
             tokenizer, self.labels, max_len, pad=False)
         return trans
 
+class CBOWNLIRunner(NLIRunner):
+    def build_model_transformer(self, max_len, tokenizer):
+        trans = CBOWTransform(self.labels, tokenizer, self.vocab, num_input_sentences=2)
+        return trans
+
+    def prepare_data(self, data, ctx):
+        """Batched data to model inputs.
+        """
+        id_, input_ids, valid_len, label = data
+        inputs = ([x.as_in_context(ctx) for x in input_ids],
+                  [x.astype('float32').as_in_context(ctx) for x in valid_len])
+        label = label.as_in_context(ctx)
+        return id_, inputs, label
+
+    def initialize_model(self, args, model, ctx):
+        # Initialize word embeddings
+        glove = nlp.embedding.create('glove', source=args.embedding_source)
+        self.vocab.set_embedding(glove)
+        # NOTE: cannot set_data before initialize
+        model.initialize(init=mx.init.Normal(0.02), ctx=ctx, force_reinit=False)
+        model.embedding.weight.set_data(self.vocab.embedding.idx_to_vec)
+        if args.fix_word_embedding:
+            model.embedding.weight.req_grad = 'null'
+
 class AdditiveNLIRunner(NLIRunner):
     """Additive model of a superficial classifier and a normal classifier.
     """
@@ -332,12 +379,8 @@ class AdditiveNLIRunner(NLIRunner):
         self.prev_args = prev_args
         super().__init__(task, runs_dir, run_id)
 
-    # TODO: take dataset as an argument
     def run_prev_model(self, dataset, ctx):
         logger.info('running previous model on preprocessed dataset')
-        #self.prev_args.test_split = split
-        #self.prev_args.cheat = cheat_rate
-        #self.prev_args.max_num_examples = max_num_examples
         _, prev_scores, ids = self.prev_runner.run_test(self.prev_args, ctx, dataset)
         return prev_scores, ids
 
@@ -346,7 +389,6 @@ class AdditiveNLIRunner(NLIRunner):
         """
         dataset = super().preprocess_dataset(split, cheat_rate, max_num_examples)
 
-        # TODO: use preprocessed dataset
         prev_scores, ids = self.run_prev_model(dataset, ctx)
         assert len(dataset) == len(prev_scores)
 

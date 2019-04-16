@@ -659,6 +659,41 @@ class BERTTransform(object):
                np.array(segment_ids, dtype='int32')
 
 
+class CBOWTransform(object):
+    """Dataset Transformation for CBOW Classification.
+    """
+    def __init__(self, labels, tokenizer, vocab, num_input_sentences):
+        self._label_map = {}
+        for (i, label) in enumerate(labels):
+            self._label_map[label] = i
+        self._vocab = vocab
+        self._tokenizer = tokenizer
+        self.num_input_sentences = num_input_sentences
+
+    def __call__(self, line):
+        id_ = line[0]
+        inputs = line[1:-1]  # list of text strings
+        label = line[-1]
+        label = convert_to_unicode(label)
+        label_id = self._label_map[label]
+        label_id = np.array([label_id], dtype='int32')
+        input_ids = [self._vocab(self._tokenizer(s.lower())) for s in inputs]
+        valid_lengths = [len(s) for s in input_ids]
+        return id_, input_ids, valid_lengths, label_id
+
+    def get_length(self, *data):
+        # First input sentence length
+        return data[2][0]
+
+    def get_batcher(self):
+        batchify_fn = nlp.data.batchify.Tuple(
+            nlp.data.batchify.Stack(),
+            nlp.data.batchify.Tuple(*[nlp.data.batchify.Pad(axis=0) for _ in range(self.num_input_sentences)]),
+            nlp.data.batchify.Tuple(*[nlp.data.batchify.Stack() for _ in range(self.num_input_sentences)]),
+            nlp.data.batchify.Stack())
+        return batchify_fn
+
+
 class ClassificationTransform(object):
     """Dataset Transformation for BERT-style Sentence Classification.
 
@@ -826,21 +861,21 @@ class SNLISuperficialTransform(ClassificationTransform):
         return batchify_fn
 
 
-class AdditiveTransform(object):
-    def __init__(self, transforms, use_length=0):
-        self.transforms = transforms
-        # Use which transform to get data valid length
-        self.use_length = use_length
-
-    def __call__(self, line):
-        return [trans(line) for trans in self.transforms]
-
-    def get_length(self, data):
-        return self.transforms[self.use_length].get_length(*data[self.use_length])
-
-    def get_batcher(self):
-        batchify_fn = nlp.data.batchify.Tuple(*[trans.get_batcher() for trans in self.transforms])
-        return batchify_fn
+#class AdditiveTransform(object):
+#    def __init__(self, transforms, use_length=0):
+#        self.transforms = transforms
+#        # Use which transform to get data valid length
+#        self.use_length = use_length
+#
+#    def __call__(self, line):
+#        return [trans(line) for trans in self.transforms]
+#
+#    def get_length(self, data):
+#        return self.transforms[self.use_length].get_length(*data[self.use_length])
+#
+#    def get_batcher(self):
+#        batchify_fn = nlp.data.batchify.Tuple(*[trans.get_batcher() for trans in self.transforms])
+#        return batchify_fn
 
 
 class RegressionTransform(object):

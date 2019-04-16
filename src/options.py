@@ -40,16 +40,18 @@ def add_model_arguments(parser):
     group = parser.add_argument_group('Model')
     #group.add_argument('--num-classes', type=int, default=2,
     #                    help='number of classes')
-    #group.add_argument('--model-type', default='cbow',
-    #                    help='model type')
+    group.add_argument('--model-type', choices=['cbow', 'bert'],
+                        help='core classifier type')
     #group.add_argument('--embedding', default='glove',
     #                    help='word embedding type')
-    #group.add_argument('--embedding-source', default='glove.840B.300d',
-    #                    help='embedding file source')
-    #group.add_argument('--embedding-size', type=int, default=300,
-    #                    help='size of pretrained word embedding')
-    #group.add_argument('--hidden-size', type=int, default=200,
-    #                    help='hidden layer size')
+    group.add_argument('--embedding-source', default='glove.840B.300d',
+                        help='embedding file source')
+    group.add_argument('--embedding-size', type=int, default=300,
+                        help='size of pretrained word embedding')
+    group.add_argument('--hidden-size', type=int, default=200,
+                        help='hidden layer size')
+    group.add_argument('--num-layers', type=int, default=1,
+                        help='number of hidden layers')
     #group.add_argument('--intra-attention', action='store_true',
     #                    help='use intra-sentence attention')
     group.add_argument('--max-len', type=int, default=128,

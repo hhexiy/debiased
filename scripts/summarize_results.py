@@ -14,10 +14,12 @@ def parse_file(path):
     data = res['config']['task_name']
     cheat = float(res['config']['cheat'])
     wdrop = float(res['config'].get('word_dropout', 0))
+    model = res['config'].get('model_type', 'bert')
     superficial = int(res['config']['superficial'])
     val_acc = res['train']['best_val_results']['accuracy']
     report = {
             'data': data,
+            'model': model,
             'cheat': cheat,
             'sup': superficial,
             'wdrop': wdrop,
@@ -37,6 +39,7 @@ def main(args):
         files.extend(glob.glob('{}/*/report.json'.format(d)))
     all_res = [parse_file(f) for f in files]
     columns = [('data', 10, 's'),
+               ('model', 7, 's'),
                ('sup', 10, 'd'),
                ('cheat', 10, '.1f'),
                ('wdrop', 10, '.1f'),

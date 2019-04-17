@@ -29,6 +29,37 @@ from .task import tasks
 
 logger = logging.getLogger('nli')
 
+class EarlyStopper(object):
+    def __init__(self, patience=5, delta=0, monitor='loss', larger_is_better=False):
+        self.patience = patience
+        self.delta = delta
+        self.monitor = monitor
+        self.larger_is_better = larger_is_better
+        self.wait = 0
+
+    def compare(self, metric_a, metric_b):
+        if self.larger_is_better:
+            return metric_a[self.monitor] > metric_b[self.monitor]
+        else:
+            return metric_a[self.monitor] < metric_b[self.monitor]
+
+    def stop(self, metric, best_metric):
+        no_improvement = False
+        if self.larger_is_better:
+            if metric[self.monitor] + self.delta < best_metric[self.monitor]:
+                no_improvement = True
+        else:
+            if metric[self.monitor] - self.delta > best_metric[self.monitor]:
+                no_improvement = True
+        if no_improvement:
+            if self.wait >= self.patience:
+                return True
+            else:
+                self.wait += 1
+        else:
+            self.wait = 0
+        return False
+
 
 class Runner(object):
     def __init__(self, task, runs_dir, run_id=None):
@@ -68,6 +99,7 @@ class NLIRunner(Runner):
         self.loss_function = gluon.loss.SoftmaxCELoss()
         self.labels = task.get_labels()
         self.vocab = None
+        self.early_stopper = EarlyStopper(monitor='accuracy', larger_is_better=True)
 
     def run(self, args):
         self.update_report(('config',), vars(args))
@@ -95,8 +127,7 @@ class NLIRunner(Runner):
 
     def run_train(self, args, ctx):
         train_dataset = self.preprocess_dataset(args.train_split, args.cheat, args.max_num_examples, ctx)
-        # NOTE: If cheating is enabled, we want to randomize the cheating feature at test time (cheat_rate = 0); otherwise, we don't want cheating features.
-        dev_dataset = self.preprocess_dataset(args.test_split, 0 if args.cheat > 0 else -1, args.max_num_examples, ctx)
+        dev_dataset = self.preprocess_dataset(args.test_split, args.cheat, args.max_num_examples, ctx)
 
         model, vocab, tokenizer = build_model(args, args, ctx, train_dataset)
         self.dump_vocab(vocab)
@@ -111,7 +142,7 @@ class NLIRunner(Runner):
         if dataset:
             test_dataset = dataset
         else:
-            test_dataset = self.preprocess_dataset(args.test_split, 0 if args.cheat > 0 else -1, args.max_num_examples, ctx)
+            test_dataset = self.preprocess_dataset(args.test_split, args.cheat, args.max_num_examples, ctx)
         test_data = self.build_data_loader(test_dataset, args.eval_batch_size, model_args.max_len, tokenizer, test=True, ctx=ctx)
         metrics, preds, labels, scores, ids = self.evaluate(test_data, model, self.task.get_metric(), ctx)
         logger.info(metric_dict_to_str(metrics))
@@ -269,7 +300,8 @@ class NLIRunner(Runner):
             p for p in model.collect_params().values() if p.grad_req != 'null'
         ]
 
-        best_dev_loss = float('inf')
+        best_dev_metrics = None
+        terminate_training = False
         checkpoints_dir = get_dir(os.path.join(self.outdir, 'checkpoints'))
 
         train_data = self.build_data_loader(train_dataset, args.batch_size, args.max_len, tokenizer, test=False, word_dropout=args.word_dropout, word_dropout_region=args.word_dropout_region, ctx=ctx)
@@ -322,15 +354,25 @@ class NLIRunner(Runner):
             mx.nd.waitall()
 
             dev_metrics, _, _, _, _ = self.evaluate(dev_data, model, metric, ctx)
-            dev_loss = dev_metrics['loss']
-            if dev_loss < best_dev_loss:
-                best_dev_loss = dev_loss
+            if best_dev_metrics and self.early_stopper.stop(dev_metrics, best_dev_metrics):
+                terminate_training = True
+            if best_dev_metrics is None or self.early_stopper.compare(dev_metrics, best_dev_metrics):
+                best_dev_metrics = dev_metrics
                 checkpoint_path = os.path.join(checkpoints_dir, 'valid_best.params')
                 model.save_parameters(checkpoint_path)
                 self.update_report(('train', 'best_val_results'), dev_metrics)
+
+
+            #dev_loss = dev_metrics['loss']
+            #if dev_loss < best_dev_loss:
+            #    best_dev_loss = dev_loss
+            #    checkpoint_path = os.path.join(checkpoints_dir, 'valid_best.params')
+            #    model.save_parameters(checkpoint_path)
+            #    self.update_report(('train', 'best_val_results'), dev_metrics)
+
             metric_names = sorted(dev_metrics.keys())
-            logger.info('[Epoch {}] val_loss={:.4f}, val_metrics={}'.format(
-                        epoch_id, dev_loss, metric_dict_to_str(dev_metrics)))
+            logger.info('[Epoch {}] val_metrics={}'.format(
+                        epoch_id, metric_dict_to_str(dev_metrics)))
 
             # Save checkpoint of last epoch
             checkpoint_path = os.path.join(checkpoints_dir, 'last.params')
@@ -339,6 +381,11 @@ class NLIRunner(Runner):
             toc = time.time()
             logger.info('Time cost={:.1f}s'.format(toc - tic))
             tic = toc
+
+            if terminate_training:
+                logger.info('early stopping')
+                break
+
 
 class SuperficialNLIRunner(NLIRunner):
     def build_model_transformer(self, max_len, tokenizer):
@@ -361,14 +408,14 @@ class CBOWNLIRunner(NLIRunner):
         return id_, inputs, label
 
     def initialize_model(self, args, model, ctx):
-        # Initialize word embeddings
-        glove = nlp.embedding.create('glove', source=args.embedding_source)
-        self.vocab.set_embedding(glove)
-        # NOTE: cannot set_data before initialize
         model.initialize(init=mx.init.Normal(0.02), ctx=ctx, force_reinit=False)
-        model.embedding.weight.set_data(self.vocab.embedding.idx_to_vec)
-        if args.fix_word_embedding:
-            model.embedding.weight.req_grad = 'null'
+        # Initialize word embeddings
+        if args.embedding_source:
+            glove = nlp.embedding.create('glove', source=args.embedding_source)
+            self.vocab.set_embedding(glove)
+            model.embedding.weight.set_data(self.vocab.embedding.idx_to_vec)
+            if args.fix_word_embedding:
+                model.embedding.weight.req_grad = 'null'
 
 class AdditiveNLIRunner(NLIRunner):
     """Additive model of a superficial classifier and a normal classifier.
@@ -401,11 +448,12 @@ class AdditiveNLIRunner(NLIRunner):
         prev_scores = mx.nd.stack(*reordered_prev_scores, axis=0)
         prev_scores = prev_scores.asnumpy()
 
-        return (prev_scores, dataset)
+        return gluon.data.ArrayDataset(prev_scores, dataset)
 
     def build_dataset(self, data, max_len, tokenizer, word_dropout=0, word_dropout_region=None, ctx=None):
         trans_list = self.build_data_transformer(max_len, tokenizer, word_dropout, word_dropout_region)
-        prev_scores, dataset = data
+        prev_scores = [x[0] for x in data]
+        dataset = gluon.data.SimpleDataset([x[1] for x in data])
         for trans in trans_list:
             dataset = dataset.transform(trans)
         # Last transform
@@ -414,7 +462,7 @@ class AdditiveNLIRunner(NLIRunner):
         batchify_fn = trans.get_batcher()
         # Combine with prev_scores
         batchify_fn = nlp.data.batchify.Tuple(nlp.data.batchify.Stack(), batchify_fn)
-        dataset = mx.gluon.data.ArrayDataset(prev_scores, dataset)
+        dataset = gluon.data.ArrayDataset(prev_scores, dataset)
         return dataset, data_lengths, batchify_fn
 
     def prepare_data(self, data, ctx):
@@ -435,6 +483,9 @@ class AdditiveNLIRunner(NLIRunner):
             results[mode] = (_metric_dict, preds, labels, scores, ids)
             for k, v in _metric_dict.items():
                 metric_dict['{}_{}'.format(model.mode, k)] = v
+            # The original_mode result will be used for model selection
+            if mode == original_mode:
+                metric_dict.update(_metric_dict)
         model.mode = original_mode
         _, preds, labels, scores, ids = results[original_mode]
         return metric_dict, preds, labels, scores, ids

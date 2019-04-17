@@ -80,7 +80,7 @@ def load_model(args, model_args, path, ctx):
     return model, vocab, tokenizer
 
 def build_model(args, model_args, ctx, dataset=None, vocab=None):
-    if hasattr(args, 'model_type') and args.model_type == 'cbow':
+    if hasattr(model_args, 'model_type') and model_args.model_type == 'cbow':
         model, vocabulary, tokenizer = build_cbow_model(model_args, ctx, dataset, vocab=vocab)
     else:
         model, vocabulary, tokenizer = build_bert_model(model_args, ctx, vocab=vocab)

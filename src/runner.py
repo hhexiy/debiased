@@ -318,12 +318,15 @@ class NLIRunner(Runner):
             for batch_id, seqs in enumerate(train_data):
                 step_num += 1
                 # learning rate schedule
-                if step_num < num_warmup_steps:
-                    new_lr = lr * step_num / num_warmup_steps
+                if args.warmup_ratio < 0:
+                    new_lr = lr
                 else:
-                    offset = (step_num - num_warmup_steps) * lr / (
-                        num_train_steps - num_warmup_steps)
-                    new_lr = lr - offset
+                    if step_num < num_warmup_steps:
+                        new_lr = lr * step_num / num_warmup_steps
+                    else:
+                        offset = (step_num - num_warmup_steps) * lr / (
+                            num_train_steps - num_warmup_steps)
+                        new_lr = lr - offset
                 trainer_w.set_learning_rate(new_lr)
                 trainer_b.set_learning_rate(new_lr)
                 # forward and backward
@@ -408,14 +411,19 @@ class CBOWNLIRunner(NLIRunner):
         return id_, inputs, label
 
     def initialize_model(self, args, model, ctx):
-        model.initialize(init=mx.init.Normal(0.02), ctx=ctx, force_reinit=False)
+        model.initialize(init=mx.init.Normal(0.01), ctx=ctx, force_reinit=False)
         # Initialize word embeddings
         if args.embedding_source:
             glove = nlp.embedding.create('glove', source=args.embedding_source)
             self.vocab.set_embedding(glove)
+            unk_idx = self.vocab[self.vocab.unknown_token]
+            pad_idx = self.vocab[self.vocab.padding_token]
+            self.vocab.embedding.idx_to_vec[unk_idx] = np.random.normal(size=args.embedding_size)
+            self.vocab.embedding.idx_to_vec[pad_idx] = 0.
             model.embedding.weight.set_data(self.vocab.embedding.idx_to_vec)
             if args.fix_word_embedding:
                 model.embedding.weight.req_grad = 'null'
+
 
 class AdditiveNLIRunner(NLIRunner):
     """Additive model of a superficial classifier and a normal classifier.

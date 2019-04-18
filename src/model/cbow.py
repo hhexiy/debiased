@@ -14,8 +14,6 @@ class CBOWClassifier(Block):
                 weight_initializer=mx.init.Xavier(),
                 dtype='float32')
             self.classifier = nn.HybridSequential(prefix=prefix)
-            if dropout:
-                self.classifier.add(nn.Dropout(rate=dropout))
             for _ in range(num_layers):
                 self.classifier.add(nn.Dense(units=hid_dim, activation='relu'))
                 if dropout:
@@ -42,11 +40,8 @@ class NLICBOWClassifier(CBOWClassifier):
     def forward(self, sentences, valid_lengths=None):  # pylint: disable=arguments-differ
         sentence_embeddings = []
         for sentence, valid_length in zip(sentences, valid_lengths):
-            ## NOTE: transpose because SequenceMask takes in data of shape (T, N, C)
-            #mask = mx.ndarray.SequenceMask(sentence.transpose(), sequence_length=valid_length, use_sequence_length=True).transpose()
-            ## For broadcasting
-            #mask = mask.expand_dims(axis=2)
-            emb = self.embedding(sentence) #* mask
+            emb = self.embedding(sentence)
+            #emb = mx.ndarray.SequenceMask(emb, sequence_length=valid_length, use_sequence_length=True, axis=1)
             sentence_embeddings.append(emb.sum(axis=1))
 
         premise, hypothesis = sentence_embeddings

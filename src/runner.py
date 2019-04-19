@@ -172,7 +172,7 @@ class NLIRunner(Runner):
         trans_list = self.build_data_transformer(max_len, tokenizer, word_dropout, word_dropout_region)
         dataset = data
         for trans in trans_list:
-            dataset = dataset.transform(trans)
+            dataset = dataset.transform(trans, lazy=False)
         # Last transform
         trans = trans_list[-1]
         data_lengths = dataset.transform(trans.get_length)
@@ -472,7 +472,7 @@ class AdditiveNLIRunner(BERTNLIRunner):
         prev_scores = [x[0] for x in data]
         dataset = gluon.data.SimpleDataset([x[1] for x in data])
         for trans in trans_list:
-            dataset = dataset.transform(trans)
+            dataset = dataset.transform(trans, lazy=False)
         # Last transform
         trans = trans_list[-1]
         data_lengths = dataset.transform(trans.get_length)

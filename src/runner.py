@@ -290,9 +290,11 @@ class NLIRunner(Runner):
         terminate_training = False
         checkpoints_dir = get_dir(os.path.join(self.outdir, 'checkpoints'))
 
+        logger.info('building data loader')
         train_data = self.build_data_loader(train_dataset, args.batch_size, args.max_len, tokenizer, test=False, word_dropout=args.word_dropout, word_dropout_region=args.word_dropout_region, ctx=ctx)
         dev_data = self.build_data_loader(dev_dataset, args.batch_size, args.max_len, tokenizer, test=True, word_dropout=0, ctx=ctx)
 
+        logger.info('start training')
         for epoch_id in range(args.epochs):
             metric.reset()
             step_loss = 0
@@ -430,23 +432,16 @@ class CBOWNLIRunner(NLIRunner):
 class AdditiveNLIRunner(BERTNLIRunner):
     """Additive model of a superficial classifier and a normal classifier.
     """
-    def __init__(self, task, runs_dir, prev_runner, prev_args, run_id=None):
+    def __init__(self, task, runs_dir, prev_runners, prev_args, run_id=None):
         # Runner for the previous model
         self.prev_runner = prev_runner
         self.prev_args = prev_args
         super().__init__(task, runs_dir, run_id)
 
-    def run_prev_model(self, dataset, ctx):
+    def run_prev_model(self, dataset, runner, args, ctx):
         logger.info('running previous model on preprocessed dataset')
+        logger.info('model path: {}'.format(args.init_from))
         _, prev_scores, ids = self.prev_runner.run_test(self.prev_args, ctx, dataset)
-        return prev_scores, ids
-
-    def preprocess_dataset(self, split, cheat_rate, max_num_examples, ctx=None):
-        """Add scores from previous classifiers.
-        """
-        dataset = super().preprocess_dataset(split, cheat_rate, max_num_examples)
-
-        prev_scores, ids = self.run_prev_model(dataset, ctx)
         assert len(dataset) == len(prev_scores)
 
         # Reorder scores by example id
@@ -457,6 +452,18 @@ class AdditiveNLIRunner(BERTNLIRunner):
             reordered_prev_scores.append(prev_scores[id_])
         prev_scores = mx.nd.stack(*reordered_prev_scores, axis=0)
         prev_scores = prev_scores.asnumpy()
+
+        return prev_scores
+
+    def preprocess_dataset(self, split, cheat_rate, max_num_examples, ctx=None):
+        """Add scores from previous classifiers.
+        """
+        dataset = super().preprocess_dataset(split, cheat_rate, max_num_examples)
+
+        prev_scores = 0.
+        for _prev_runner, _prev_args in zip(self.prev_runners, self.prev_args):
+            _prev_scores = self.run_prev_model(dataset, _prev_runner, _prev_args, ctx)
+            prev_scores += _prev_scores
 
         return gluon.data.ArrayDataset(prev_scores, dataset)
 

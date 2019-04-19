@@ -82,13 +82,17 @@ def get_runner(args, model_args, task, output_dir=None):
     if model_args.superficial:
         runner = SuperficialNLIRunner(task, output_dir, args.exp_id)
     elif model_args.additive:
-        #for path in model_args.additive:
-        prev_args = read_args(model_args.additive)
-        # Change to inference model
-        prev_args.init_from = model_args.additive
-        prev_args.dropout = 0.0
-        prev_runner = get_runner(args, prev_args, task, output_dir='/tmp/{}'.format(args.exp_id))
-        runner = AdditiveNLIRunner(task, output_dir, prev_runner, prev_args, args.exp_id)
+        prev_runners = []
+        prev_args = []
+        for i, path in enumerate(model_args.additive):
+            _prev_args = read_args(path)
+            # Change to inference model
+            _prev_args.init_from = path
+            _prev_args.dropout = 0.0
+            _prev_runner = get_runner(args, _prev_args, task, output_dir='/tmp/{}/{}'.format(args.exp_id, i))
+            prev_runners.append(_prev_runner)
+            prev_args.append(_prev_args)
+        runner = AdditiveNLIRunner(task, output_dir, prev_runners, prev_args, args.exp_id)
     elif model_args.model_type == 'cbow':
         runner = CBOWNLIRunner(task, output_dir, args.exp_id)
     elif model_args.model_type == 'bert':
@@ -120,7 +124,8 @@ def main(args):
     try:
         runner.run(args)
         runner.dump_report()
-    except KeyboardInterrupt:
+    except KeyboardInterrupt as e:
+        print(e)
         logger.info('Terminated. Dumping report.')
         runner.dump_report()
 

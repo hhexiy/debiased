@@ -82,16 +82,19 @@ def get_runner(args, model_args, task, output_dir=None):
     if model_args.superficial:
         runner = SuperficialNLIRunner(task, output_dir, args.exp_id)
     elif model_args.additive:
+        #for path in model_args.additive:
         prev_args = read_args(model_args.additive)
         # Change to inference model
         prev_args.init_from = model_args.additive
         prev_args.dropout = 0.0
         prev_runner = get_runner(args, prev_args, task, output_dir='/tmp/{}'.format(args.exp_id))
         runner = AdditiveNLIRunner(task, output_dir, prev_runner, prev_args, args.exp_id)
-    elif hasattr(model_args, 'model_type') and model_args.model_type == 'cbow':
+    elif model_args.model_type == 'cbow':
         runner = CBOWNLIRunner(task, output_dir, args.exp_id)
+    elif model_args.model_type == 'bert':
+        runner = BERTNLIRunner(task, output_dir, args.exp_id)
     else:
-        runner = NLIRunner(task, output_dir, args.exp_id)
+        raise ValueError
     return runner
 
 def main(args):

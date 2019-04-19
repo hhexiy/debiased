@@ -22,6 +22,7 @@ import collections
 import unicodedata
 import io
 import six
+import re
 
 def convert_to_unicode(text):
     """Converts `text` to Unicode (if it's not already), assuming utf-8 input."""
@@ -95,6 +96,19 @@ def whitespace_tokenize(text):
         return []
     tokens = text.split()
     return tokens
+
+
+class SNLITokenizer(object):
+    """Get tokens from sentence parsers.
+    """
+    def __init__(self, do_lower_case):
+        self.do_lower_case = do_lower_case
+
+    def tokenize(self, text):
+        if self.do_lower_case:
+            text = text.lower()
+        tokens = re.sub(r'\(|\)', '', text).split()
+        return tokens
 
 
 class FullTokenizer(object):

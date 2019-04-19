@@ -18,7 +18,7 @@ def add_data_arguments(parser):
                         help='test data split name')
     group.add_argument('--superficial', action='store_true',
                         help='only use superficial features')
-    group.add_argument('--additive',
+    group.add_argument('--additive', nargs='*', default=None,
                         help='path to models to be added to the additive model')
     group.add_argument('--cheat', type=float, default=-1,
                         help='percentage of training data using cheating feature. -1 means on cheating features is added at all.')

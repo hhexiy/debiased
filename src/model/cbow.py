@@ -3,17 +3,14 @@ from mxnet.gluon import Block, HybridBlock, nn
 
 """CBOW models."""
 
-# TODO: add child class NLICBOWClassifier
 class CBOWClassifier(Block):
     def __init__(self, vocab_size, num_classes, embedding_dim, hid_dim, num_layers, dropout=0.0, prefix=None, params=None):
         super(CBOWClassifier, self).__init__(prefix=prefix, params=params)
         with self.name_scope():
-            self.embedding = nn.Embedding(
-                vocab_size,
-                embedding_dim,
-                weight_initializer=mx.init.Xavier(),
-                dtype='float32')
+            self.embedding = nn.Embedding(vocab_size, embedding_dim)
             self.classifier = nn.HybridSequential(prefix=prefix)
+            if dropout:
+                self.classifier.add(nn.Dropout(rate=dropout))
             for _ in range(num_layers):
                 self.classifier.add(nn.Dense(units=hid_dim, activation='relu'))
                 if dropout:

@@ -33,7 +33,7 @@ class VocabBuilder(object):
 
     def build_vocab(self, dataset):
         # Each example is a sequence to tokens
-        sentences = list(itertools.chain.from_iterable([self.preprocess(ex) for ex in dataset]))
+        sentences = itertools.chain.from_iterable([self.preprocess(ex) for ex in dataset])
         tokens = [self.tokenizer.tokenize(s) for s in sentences]
         counter = nlp.data.count_tokens(list(itertools.chain.from_iterable(tokens)))
         vocab = nlp.Vocab(counter, bos_token=None, eos_token=None)
@@ -41,8 +41,7 @@ class VocabBuilder(object):
         return vocab
 
 
-def build_cbow_model(args, ctx, dataset, vocab=None):
-    tokenizer = BasicTokenizer(do_lower_case=True)
+def build_cbow_model(args, ctx, dataset, tokenizer, vocab=None):
     if vocab is None:
         vocab = VocabBuilder(tokenizer).build_vocab(dataset)
     task_name = args.task_name
@@ -69,10 +68,10 @@ def build_bert_model(args, ctx, vocab=None):
     tokenizer = FullTokenizer(vocabulary, do_lower_case=do_lower_case)
     return model, vocabulary, tokenizer
 
-def load_model(args, model_args, path, ctx):
+def load_model(args, model_args, path, ctx, tokenizer=None):
     vocab = nlp.Vocab.from_json(
         open(os.path.join(path, 'vocab.jsons')).read())
-    model, _, tokenizer = build_model(args, model_args, ctx, vocab=vocab)
+    model, _, tokenizer = build_model(args, model_args, ctx, vocab=vocab, tokenizer=tokenizer)
     params_file = 'last.params' if args.use_last else 'valid_best.params'
     logger.info('load model from {}'.format(os.path.join(
         path, 'checkpoints', params_file)))
@@ -80,9 +79,9 @@ def load_model(args, model_args, path, ctx):
         path, 'checkpoints', params_file), ctx=ctx)
     return model, vocab, tokenizer
 
-def build_model(args, model_args, ctx, dataset=None, vocab=None):
+def build_model(args, model_args, ctx, dataset=None, vocab=None, tokenizer=None):
     if hasattr(model_args, 'model_type') and model_args.model_type == 'cbow':
-        model, vocabulary, tokenizer = build_cbow_model(model_args, ctx, dataset, vocab=vocab)
+        model, vocabulary, tokenizer = build_cbow_model(model_args, ctx, dataset, tokenizer, vocab=vocab)
     else:
         model, vocabulary, tokenizer = build_bert_model(model_args, ctx, vocab=vocab)
 
@@ -91,41 +90,3 @@ def build_model(args, model_args, ctx, dataset=None, vocab=None):
 
     logger.debug(model)
     return model, vocabulary, tokenizer
-
-
-#class ModelBuilder(object):
-#    def __init__(self):
-#        self.tokenizer = None
-#        self.vocab = None
-#
-#    def build_model(self, args, ctx):
-#        raise NotImplementedError
-#
-#    def load_model(self, args, model_args, path, ctx):
-#        model, _, tokenizer = self.build_model(args, model_args, ctx)
-#        params_file = 'last.params' if args.use_last else 'valid_best.params'
-#        logger.info('load model from {}'.format(os.path.join(
-#            path, 'checkpoints', params_file)))
-#        model.load_parameters(os.path.join(
-#            path, 'checkpoints', params_file), ctx=ctx)
-#        vocab = nlp.Vocab.from_json(
-#            open(os.path.join(path, 'vocab.jsons')).read())
-#        return model, vocab, tokenizer
-#
-#
-#class BERTModelBuilder(ModelBuilder):
-#    def build_model(self, args, ctx):
-#        dataset = 'book_corpus_wiki_en_uncased'
-#        do_lower_case = 'uncased' in dataset
-#        bert, vocabulary = bert_12_768_12(
-#            dataset_name=dataset,
-#            pretrained=True,
-#            ctx=ctx,
-#            use_pooler=True,
-#            use_decoder=False,
-#            use_classifier=False)
-#        task_name = args.task_name
-#        num_classes = len(tasks[task_name].get_labels())
-#        model = BERTClassifier(bert, num_classes=num_classes, dropout=args.dropout)
-#        tokenizer = FullTokenizer(vocabulary, do_lower_case=do_lower_case)
-#        return model, vocabulary, tokenizer

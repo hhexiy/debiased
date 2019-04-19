@@ -25,6 +25,7 @@ import numpy as np
 import glob
 import random
 import re
+import logging
 from mxnet.metric import Accuracy, F1, MCC, PearsonCorrelation, CompositeEvalMetric
 try:
     from tokenizer import convert_to_unicode
@@ -34,6 +35,7 @@ from gluonnlp.data import TSVDataset
 from gluonnlp.data.registry import register
 import gluonnlp as nlp
 
+logger = logging.getLogger('nli')
 
 @register(segment=['train', 'dev', 'test'])
 class MRPCDataset(TSVDataset):
@@ -78,18 +80,26 @@ class MRPCDataset(TSVDataset):
 class GLUEDataset(TSVDataset):
     """GLUEDataset class"""
 
-    def __init__(self, path, num_discard_samples, fields, max_num_examples=-1):
+    def __init__(self, path, num_discard_samples, fields, label_field=None, max_num_examples=-1):
         self.fields = fields
         self.max_num_examples = max_num_examples
+        self.label_field = label_field
         super(GLUEDataset, self).__init__(
             path, num_discard_samples=num_discard_samples)
 
     def _read(self):
         all_samples = super(GLUEDataset, self)._read()
+        logger.info('read {} examples'.format(len(all_samples)))
         largest_field = max(self.fields)
-        #to filter out error records
+        # filter out error records
         final_samples = [[id_] + [s[f] for f in self.fields] for id_, s in enumerate(all_samples)
                          if len(s) >= largest_field + 1]
+        logger.info('{} examples after filtering by number of fields'.format(len(final_samples)))
+        # filter wrong labels
+        label_field = self.label_field + 1  # we inserted id_ before fields
+        if self.label_field is not None:
+            final_samples = [s for s in final_samples if s[label_field] in self.get_labels()]
+            logger.info('{} examples after filtering by valid labels'.format(len(final_samples)))
         if self.max_num_examples > 0:
             return final_samples[:self.max_num_examples]
         return final_samples
@@ -379,24 +389,33 @@ class MNLIDataset(GLUEDataset):
                  segment='dev_matched',
                  root=os.path.join(os.getenv('GLUE_DIR', 'glue_data'),
                                    'MNLI'),
-                 max_num_examples=-1):  #pylint: disable=c0330
+                 max_num_examples=-1,
+                 load_parse=False):  #pylint: disable=c0330
         self._supported_segments = [
             'dev_matched', 'dev_mismatched', 'test_matched', 'test_mismatched',
             'train'
         ]
         assert segment in self._supported_segments, 'Unsupported segment: %s' % segment
         path = os.path.join(root, '%s.tsv' % segment)
-        if segment in ['dev_matched', 'dev_mismatched']:
-            A_IDX, B_IDX, LABEL_IDX = 8, 9, 15
-            fields = [A_IDX, B_IDX, LABEL_IDX]
-        elif segment in ['test_matched', 'test_mismatched']:
+        if load_parse:
+            logger.info('using parsed data from MNLI')
+            A_IDX, B_IDX = 4, 5
+        else:
+            logger.info('using raw data from MNLI')
             A_IDX, B_IDX = 8, 9
-            fields = [A_IDX, B_IDX]
-        elif segment == 'train':
-            A_IDX, B_IDX, LABEL_IDX = 8, 9, 11
+        if segment in ['dev_matched', 'dev_mismatched']:
+            LABEL_IDX = 15
             fields = [A_IDX, B_IDX, LABEL_IDX]
+            label_field = 2
+        elif segment in ['test_matched', 'test_mismatched']:
+            fields = [A_IDX, B_IDX]
+            label_field = None
+        elif segment == 'train':
+            LABEL_IDX = 11
+            fields = [A_IDX, B_IDX, LABEL_IDX]
+            label_field = 2
         super(MNLIDataset, self).__init__(
-            path, num_discard_samples=1, fields=fields, max_num_examples=max_num_examples)
+            path, num_discard_samples=1, fields=fields, label_field=label_field, max_num_examples=max_num_examples)
 
     @staticmethod
     def get_labels():
@@ -427,14 +446,21 @@ class SNLIDataset(GLUEDataset):
                  segment='train',
                  root=os.path.join(os.getenv('GLUE_DIR', 'glue_data'),
                                    'SNLI'),
-                 max_num_examples=-1):  #pylint: disable=c0330
+                 max_num_examples=-1,
+                 load_parse=False):  #pylint: disable=c0330
         self._supported_segments = ['train', 'dev', 'test']
         assert segment in self._supported_segments, 'Unsupported segment: %s' % segment
-        path = os.path.join(root, '%s.tsv' % segment)
-        A_IDX, B_IDX, LABEL_IDX = 7, 8, 14
+        # NOTE: number of examples in .tsv files is different than original/*.txt
+        path = os.path.join(root, 'original', 'snli_1.0_%s.txt' % segment)
+        if not load_parse:
+            logger.info('using raw data from SNLI')
+            A_IDX, B_IDX, LABEL_IDX = 5, 6, 0
+        else:
+            logger.info('using parsed data from SNLI')
+            A_IDX, B_IDX, LABEL_IDX = 1, 2, 0
         fields = [A_IDX, B_IDX, LABEL_IDX]
         super(SNLIDataset, self).__init__(
-            path, num_discard_samples=1, fields=fields, max_num_examples=max_num_examples)
+            path, num_discard_samples=1, fields=fields, label_field=2, max_num_examples=max_num_examples)
 
     @classmethod
     def get_labels(cls):

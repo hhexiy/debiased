@@ -26,6 +26,7 @@ from .options import add_default_arguments, add_data_arguments, add_logging_argu
 from .utils import *
 from .model_builder import build_model, load_model
 from .task import tasks
+from .tokenizer import SNLITokenizer
 
 logger = logging.getLogger('nli')
 
@@ -99,7 +100,9 @@ class NLIRunner(Runner):
         self.loss_function = gluon.loss.SoftmaxCELoss()
         self.labels = task.get_labels()
         self.vocab = None
+        self.tokenizer = None
         self.early_stopper = EarlyStopper(monitor='accuracy', larger_is_better=True)
+        self.load_parse = False
 
     def run(self, args):
         self.update_report(('config',), vars(args))
@@ -116,8 +119,8 @@ class NLIRunner(Runner):
             self.run_test(args, ctx)
 
     def preprocess_dataset(self, split, cheat_rate, max_num_examples, ctx=None):
-        logger.info('preprocess {} data'.format(split))
-        dataset = self.task(split, max_num_examples=max_num_examples)
+        dataset = self.task(segment=split, max_num_examples=max_num_examples, load_parse=self.load_parse)
+        logger.info('preprocess {} {} data'.format(len(dataset), split))
         if cheat_rate >= 0:
             trans = self.build_cheat_transformer(cheat_rate)
             # Make sure we have the same data
@@ -129,7 +132,7 @@ class NLIRunner(Runner):
         train_dataset = self.preprocess_dataset(args.train_split, args.cheat, args.max_num_examples, ctx)
         dev_dataset = self.preprocess_dataset(args.test_split, args.cheat, args.max_num_examples, ctx)
 
-        model, vocab, tokenizer = build_model(args, args, ctx, train_dataset)
+        model, vocab, tokenizer = build_model(args, args, ctx, train_dataset, tokenizer=self.tokenizer)
         self.dump_vocab(vocab)
         self.vocab = vocab
 
@@ -137,7 +140,7 @@ class NLIRunner(Runner):
 
     def run_test(self, args, ctx, dataset=None):
         model_args = read_args(args.init_from)
-        model, vocab, tokenizer = load_model(args, model_args, args.init_from, ctx)
+        model, vocab, tokenizer = load_model(args, model_args, args.init_from, ctx, tokenizer=self.tokenizer)
         self.vocab = vocab
         if dataset:
             test_dataset = dataset
@@ -155,11 +158,6 @@ class NLIRunner(Runner):
         else:
             logger.info('cheating rate: {}'.format(cheat_rate))
             return SNLICheatTransform(self.task.get_labels(), rate=cheat_rate)
-
-    def build_model_transformer(self, max_len, tokenizer):
-        trans = ClassificationTransform(
-            tokenizer, self.labels, max_len, pad=False, pair=True)
-        return trans
 
     def build_data_transformer(self, max_len, tokenizer, word_dropout, word_dropout_region):
         trans_list = []
@@ -193,15 +191,6 @@ class NLIRunner(Runner):
                                            batch_sampler=batch_sampler,
                                            batchify_fn=batchify_fn)
         return data_loader
-
-    def prepare_data(self, data, ctx):
-        """Batched data to model inputs.
-        """
-        id_, input_ids, valid_len, type_ids, label = data
-        inputs = (input_ids.as_in_context(ctx), type_ids.as_in_context(ctx),
-                  valid_len.astype('float32').as_in_context(ctx))
-        label = label.as_in_context(ctx)
-        return id_, inputs, label
 
     def evaluate(self, data_loader, model, metric, ctx):
         """Evaluate the model on validation dataset.
@@ -245,9 +234,6 @@ class NLIRunner(Runner):
                 return {'learning_rate': lr, 'wd': 0.0}
             else:
                 return {'learning_rate': lr, 'wd': 0.0}
-
-    def initialize_model(self, args, model, ctx):
-        model.initialize(init=mx.init.Normal(0.02), ctx=ctx, force_reinit=False)
 
     def train(self, args, model, train_dataset, dev_dataset, ctx, tokenizer, data_noising_by_epoch):
         task = self.task
@@ -365,14 +351,6 @@ class NLIRunner(Runner):
                 model.save_parameters(checkpoint_path)
                 self.update_report(('train', 'best_val_results'), dev_metrics)
 
-
-            #dev_loss = dev_metrics['loss']
-            #if dev_loss < best_dev_loss:
-            #    best_dev_loss = dev_loss
-            #    checkpoint_path = os.path.join(checkpoints_dir, 'valid_best.params')
-            #    model.save_parameters(checkpoint_path)
-            #    self.update_report(('train', 'best_val_results'), dev_metrics)
-
             metric_names = sorted(dev_metrics.keys())
             logger.info('[Epoch {}] val_metrics={}'.format(
                         epoch_id, metric_dict_to_str(dev_metrics)))
@@ -390,13 +368,37 @@ class NLIRunner(Runner):
                 break
 
 
-class SuperficialNLIRunner(NLIRunner):
+class BERTNLIRunner(NLIRunner):
+    def build_model_transformer(self, max_len, tokenizer):
+        trans = ClassificationTransform(
+            tokenizer, self.labels, max_len, pad=False, pair=True)
+        return trans
+
+    def prepare_data(self, data, ctx):
+        """Batched data to model inputs.
+        """
+        id_, input_ids, valid_len, type_ids, label = data
+        inputs = (input_ids.as_in_context(ctx), type_ids.as_in_context(ctx),
+                  valid_len.astype('float32').as_in_context(ctx))
+        label = label.as_in_context(ctx)
+        return id_, inputs, label
+
+    def initialize_model(self, args, model, ctx):
+        model.initialize(init=mx.init.Normal(0.02), ctx=ctx, force_reinit=False)
+
+
+class SuperficialNLIRunner(BERTNLIRunner):
     def build_model_transformer(self, max_len, tokenizer):
         trans = SNLISuperficialTransform(
             tokenizer, self.labels, max_len, pad=False)
         return trans
 
 class CBOWNLIRunner(NLIRunner):
+    def __init__(self, task, runs_dir, run_id=None):
+        super().__init__(task, runs_dir, run_id)
+        self.load_parse = True
+        self.tokenizer = SNLITokenizer(do_lower_case=True)
+
     def build_model_transformer(self, max_len, tokenizer):
         trans = CBOWTransform(self.labels, tokenizer, self.vocab, num_input_sentences=2)
         return trans
@@ -425,7 +427,7 @@ class CBOWNLIRunner(NLIRunner):
                 model.embedding.weight.req_grad = 'null'
 
 
-class AdditiveNLIRunner(NLIRunner):
+class AdditiveNLIRunner(BERTNLIRunner):
     """Additive model of a superficial classifier and a normal classifier.
     """
     def __init__(self, task, runs_dir, prev_runner, prev_args, run_id=None):

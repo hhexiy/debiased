@@ -3,6 +3,7 @@ import logging
 import argparse
 import json
 import itertools
+import re
 
 import mxnet as mx
 import gluonnlp as nlp
@@ -12,7 +13,7 @@ from .model.bert import BERTClassifier
 from .model.additive import AdditiveClassifier
 from .model.cbow import NLICBOWClassifier
 from .task import tasks
-from .tokenizer import FullTokenizer
+from .tokenizer import FullTokenizer, BasicTokenizer
 from .utils import read_args
 
 logger = logging.getLogger('nli')
@@ -33,7 +34,7 @@ class VocabBuilder(object):
     def build_vocab(self, dataset):
         # Each example is a sequence to tokens
         sentences = list(itertools.chain.from_iterable([self.preprocess(ex) for ex in dataset]))
-        tokens = [self.tokenizer(s.lower()) for s in sentences]
+        tokens = [self.tokenizer.tokenize(s) for s in sentences]
         counter = nlp.data.count_tokens(list(itertools.chain.from_iterable(tokens)))
         vocab = nlp.Vocab(counter, bos_token=None, eos_token=None)
         logger.info('built vocabulary of size {}'.format(len(vocab)))
@@ -41,7 +42,7 @@ class VocabBuilder(object):
 
 
 def build_cbow_model(args, ctx, dataset, vocab=None):
-    tokenizer = nlp.data.SpacyTokenizer('en')
+    tokenizer = BasicTokenizer(do_lower_case=True)
     if vocab is None:
         vocab = VocabBuilder(tokenizer).build_vocab(dataset)
     task_name = args.task_name

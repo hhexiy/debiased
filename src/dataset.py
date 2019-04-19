@@ -24,6 +24,7 @@ import os
 import numpy as np
 import glob
 import random
+import re
 from mxnet.metric import Accuracy, F1, MCC, PearsonCorrelation, CompositeEvalMetric
 try:
     from tokenizer import convert_to_unicode
@@ -123,18 +124,35 @@ class QQPDataset(GLUEDataset):
         super(QQPDataset, self).__init__(
             path, num_discard_samples=1, fields=fields)
 
-    @staticmethod
+    @classmethod
     def get_labels():
         """Get classification label ids of the dataset."""
         return ['0', '1']
 
-    @staticmethod
+    @classmethod
     def get_metric():
         """Get metrics Accuracy and F1"""
         metric = CompositeEvalMetric()
         for child_metric in [Accuracy(), F1()]:
             metric.add(child_metric)
         return metric
+
+
+class QQPWangDataset(QQPDataset):
+    """QQP dataset split by Wang et al., IJCAI 2017.
+    https://drive.google.com/file/d/0B0PlTAo--BnaQWlsZl9FZ3l1c28/view?usp=sharing
+    """
+    def __init__(self,
+                 segment='train',
+                 root=os.path.join(os.getenv('GLUE_DIR', 'glue_data'), 'QQP-wang')):
+        self._supported_segments = ['train', 'dev', 'test']
+        assert segment in self._supported_segments, 'Unsupported segment: %s' % segment
+        path = os.path.join(root, '%s.tsv' % segment)
+        if segment in ['train', 'dev', 'test']:
+            A_IDX, B_IDX, LABEL_IDX = 3, 4, 5
+            fields = [A_IDX, B_IDX, LABEL_IDX]
+        super(QQPDataset, self).__init__(
+            path, num_discard_samples=1, fields=fields)
 
 
 @register(segment=['train', 'dev', 'test'])
@@ -459,14 +477,6 @@ class SNLIHaohanDataset(SNLIDataset):
                  max_num_examples=-1):  #pylint: disable=c0330
         super().__init__(segment, root, max_num_examples)
 
-    @staticmethod
-    def get_labels():
-        return ['neutral', 'entailment', 'contradiction']
-
-    @staticmethod
-    def get_metric():
-        return Accuracy()
-
 
 @register(segment=['train', 'dev', 'test'])
 class WNLIDataset(GLUEDataset):
@@ -677,7 +687,7 @@ class CBOWTransform(object):
         label = convert_to_unicode(label)
         label_id = self._label_map[label]
         label_id = np.array([label_id], dtype='int32')
-        input_ids = [self._vocab(self._tokenizer(s.lower())) for s in inputs]
+        input_ids = [self._vocab(self._tokenizer.tokenize(s)) for s in inputs]
         valid_lengths = [len(s) for s in input_ids]
         return id_, input_ids, valid_lengths, label_id
 
@@ -688,7 +698,7 @@ class CBOWTransform(object):
     def get_batcher(self):
         batchify_fn = nlp.data.batchify.Tuple(
             nlp.data.batchify.Stack(),
-            nlp.data.batchify.Tuple(*[nlp.data.batchify.Pad(axis=0) for _ in range(self.num_input_sentences)]),
+            nlp.data.batchify.Tuple(*[nlp.data.batchify.Pad(axis=0, pad_val=self._vocab[self._vocab.padding_token]) for _ in range(self.num_input_sentences)]),
             nlp.data.batchify.Tuple(*[nlp.data.batchify.Stack() for _ in range(self.num_input_sentences)]),
             nlp.data.batchify.Stack())
         return batchify_fn

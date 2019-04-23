@@ -434,14 +434,14 @@ class AdditiveNLIRunner(BERTNLIRunner):
     """
     def __init__(self, task, runs_dir, prev_runners, prev_args, run_id=None):
         # Runner for the previous model
-        self.prev_runner = prev_runner
+        self.prev_runners = prev_runners
         self.prev_args = prev_args
         super().__init__(task, runs_dir, run_id)
 
     def run_prev_model(self, dataset, runner, args, ctx):
         logger.info('running previous model on preprocessed dataset')
         logger.info('model path: {}'.format(args.init_from))
-        _, prev_scores, ids = self.prev_runner.run_test(self.prev_args, ctx, dataset)
+        _, prev_scores, ids = runner.run_test(args, ctx, dataset)
         assert len(dataset) == len(prev_scores)
 
         # Reorder scores by example id

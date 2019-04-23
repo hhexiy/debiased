@@ -10,6 +10,7 @@ import numpy as np
 import pickle as pkl
 import uuid
 import glob
+import time
 
 import mxnet as mx
 from mxnet import gluon
@@ -26,7 +27,7 @@ from .options import add_default_arguments, add_data_arguments, add_logging_argu
 from .utils import *
 from .model_builder import build_model, load_model
 from .task import tasks
-from .tokenizer import SNLITokenizer
+from .tokenizer import SNLITokenizer, BasicTokenizer
 
 logger = logging.getLogger('nli')
 
@@ -102,7 +103,6 @@ class NLIRunner(Runner):
         self.vocab = None
         self.tokenizer = None
         self.early_stopper = EarlyStopper(monitor='accuracy', larger_is_better=True)
-        self.load_parse = False
 
     def run(self, args):
         self.update_report(('config',), vars(args))
@@ -119,7 +119,7 @@ class NLIRunner(Runner):
             self.run_test(args, ctx)
 
     def preprocess_dataset(self, split, cheat_rate, max_num_examples, ctx=None):
-        dataset = self.task(segment=split, max_num_examples=max_num_examples, load_parse=self.load_parse)
+        dataset = self.task(segment=split, max_num_examples=max_num_examples)
         logger.info('preprocess {} {} data'.format(len(dataset), split))
         if cheat_rate >= 0:
             trans = self.build_cheat_transformer(cheat_rate)
@@ -171,8 +171,11 @@ class NLIRunner(Runner):
     def build_dataset(self, data, max_len, tokenizer, word_dropout=0, word_dropout_region=None, ctx=None):
         trans_list = self.build_data_transformer(max_len, tokenizer, word_dropout, word_dropout_region)
         dataset = data
+        logger.info('processing {} examples'.format(len(dataset)))
+        start = time.time()
         for trans in trans_list:
             dataset = dataset.transform(trans, lazy=False)
+        logger.info('elapsed time: {:.2f}s'.format(time.time() - start))
         # Last transform
         trans = trans_list[-1]
         data_lengths = dataset.transform(trans.get_length)
@@ -398,8 +401,7 @@ class SuperficialNLIRunner(BERTNLIRunner):
 class CBOWNLIRunner(NLIRunner):
     def __init__(self, task, runs_dir, run_id=None):
         super().__init__(task, runs_dir, run_id)
-        self.load_parse = True
-        self.tokenizer = SNLITokenizer(do_lower_case=True)
+        self.tokenizer = BasicTokenizer(do_lower_case=True)
 
     def build_model_transformer(self, max_len, tokenizer):
         trans = CBOWTransform(self.labels, tokenizer, self.vocab, num_input_sentences=2)
@@ -471,8 +473,11 @@ class AdditiveNLIRunner(BERTNLIRunner):
         trans_list = self.build_data_transformer(max_len, tokenizer, word_dropout, word_dropout_region)
         prev_scores = [x[0] for x in data]
         dataset = gluon.data.SimpleDataset([x[1] for x in data])
+        logger.info('processing {} examples'.format(len(dataset)))
+        start = time.time()
         for trans in trans_list:
             dataset = dataset.transform(trans, lazy=False)
+        logger.info('elapsed time: {:.2f}s'.format(time.time() - start))
         # Last transform
         trans = trans_list[-1]
         data_lengths = dataset.transform(trans.get_length)

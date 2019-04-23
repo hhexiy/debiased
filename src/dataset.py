@@ -389,20 +389,14 @@ class MNLIDataset(GLUEDataset):
                  segment='dev_matched',
                  root=os.path.join(os.getenv('GLUE_DIR', 'glue_data'),
                                    'MNLI'),
-                 max_num_examples=-1,
-                 load_parse=False):  #pylint: disable=c0330
+                 max_num_examples=-1):  #pylint: disable=c0330
         self._supported_segments = [
             'dev_matched', 'dev_mismatched', 'test_matched', 'test_mismatched',
             'train'
         ]
         assert segment in self._supported_segments, 'Unsupported segment: %s' % segment
         path = os.path.join(root, '%s.tsv' % segment)
-        if load_parse:
-            logger.info('using parsed data from MNLI')
-            A_IDX, B_IDX = 4, 5
-        else:
-            logger.info('using raw data from MNLI')
-            A_IDX, B_IDX = 8, 9
+        A_IDX, B_IDX = 8, 9
         if segment in ['dev_matched', 'dev_mismatched']:
             LABEL_IDX = 15
             fields = [A_IDX, B_IDX, LABEL_IDX]
@@ -446,18 +440,12 @@ class SNLIDataset(GLUEDataset):
                  segment='train',
                  root=os.path.join(os.getenv('GLUE_DIR', 'glue_data'),
                                    'SNLI'),
-                 max_num_examples=-1,
-                 load_parse=False):  #pylint: disable=c0330
+                 max_num_examples=-1):  #pylint: disable=c0330
         self._supported_segments = ['train', 'dev', 'test']
         assert segment in self._supported_segments, 'Unsupported segment: %s' % segment
         # NOTE: number of examples in .tsv files is different than original/*.txt
         path = os.path.join(root, 'original', 'snli_1.0_%s.txt' % segment)
-        if not load_parse:
-            logger.info('using raw data from SNLI')
-            A_IDX, B_IDX, LABEL_IDX = 5, 6, 0
-        else:
-            logger.info('using parsed data from SNLI')
-            A_IDX, B_IDX, LABEL_IDX = 1, 2, 0
+        A_IDX, B_IDX, LABEL_IDX = 5, 6, 0
         fields = [A_IDX, B_IDX, LABEL_IDX]
         super(SNLIDataset, self).__init__(
             path, num_discard_samples=1, fields=fields, label_field=2, max_num_examples=max_num_examples)

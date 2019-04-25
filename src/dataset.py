@@ -480,7 +480,7 @@ class MNLIStressTestDataset(SNLIDataset):
 
         fields = [A_IDX, B_IDX, LABEL_IDX]
         super(SNLIDataset, self).__init__(
-            path, num_discard_samples=1, fields=fields, max_num_examples=max_num_examples)
+            path, num_discard_samples=1, fields=fields, label_field=2, max_num_examples=max_num_examples)
 
 
 class SNLIHaohanDataset(SNLIDataset):
@@ -489,7 +489,14 @@ class SNLIHaohanDataset(SNLIDataset):
                  root=os.path.join(os.getenv('GLUE_DIR', 'glue_data'),
                                    'SNLI-haohan'),
                  max_num_examples=-1):  #pylint: disable=c0330
-        super().__init__(segment, root, max_num_examples)
+        self._supported_segments = ['train', 'dev', 'test']
+        assert segment in self._supported_segments, 'Unsupported segment: %s' % segment
+        # NOTE: number of examples in .tsv files is different than original/*.txt
+        path = os.path.join(root, '%s.tsv' % segment)
+        A_IDX, B_IDX, LABEL_IDX = 7, 8, 14
+        fields = [A_IDX, B_IDX, LABEL_IDX]
+        super(SNLIDataset, self).__init__(
+            path, num_discard_samples=1, fields=fields, label_field=2, max_num_examples=max_num_examples)
 
 
 @register(segment=['train', 'dev', 'test'])

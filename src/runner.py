@@ -442,7 +442,6 @@ class AdditiveNLIRunner(BERTNLIRunner):
 
     def run_prev_model(self, dataset, runner, args, ctx):
         logger.info('running previous model on preprocessed dataset')
-        logger.info('model path: {}'.format(args.init_from))
         _, prev_scores, ids = runner.run_test(args, ctx, dataset)
         assert len(dataset) == len(prev_scores)
 

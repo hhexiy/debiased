@@ -861,7 +861,55 @@ class SNLIWordDropTransform(object):
         return line
 
 
-class SNLISuperficialTransform(ClassificationTransform):
+class NLIHandcraftedTransform(object):
+    """Dataset Transformation for CBOW Classification.
+    """
+    def __init__(self, labels, tokenizer, vocab):
+        self._label_map = {}
+        for (i, label) in enumerate(labels):
+            self._label_map[label] = i
+        self._vocab = vocab
+        self._tokenizer = tokenizer
+
+    def __call__(self, line):
+        id_ = line[0]
+        inputs = line[1:-1]  # list of text strings
+        label = line[-1]
+        label = convert_to_unicode(label)
+        label_id = self._label_map[label]
+        label_id = np.array([label_id], dtype='int32')
+
+        assert len(inputs) == 2
+        prem, hypo = [self._tokenizer.tokenize(s) for s in inputs]
+        len_diff = abs(len(hypo) - len(prem)) / (len(hypo) + len(prem))
+        negation = 1 if ('not' in hypo or "n't" in hypo) else 0
+        jaccard_sim = len(set(prem).intersection(set(hypo))) / float(len(set(prem).union(set(hypo))))
+        overlap_tokens = [w for w in hypo if w in prem]
+        non_overlap_tokens = [w for w in hypo if not w in prem]
+        if not overlap_tokens:
+            overlap_tokens = ['<empty>']
+        if not non_overlap_tokens:
+            non_overlap_tokens = ['<empty>']
+        overlap_token_ids = [self._vocab(w) for w in overlap_tokens]
+        non_overlap_token_ids = [self._vocab(w) for w in non_overlap_tokens]
+        dense_features = [len_diff, negation, jaccard_sim]
+
+        return id_, dense_features, overlap_token_ids, non_overlap_token_ids, label_id
+
+    def get_length(self, *data):
+        return len(data[1]) + len(data[2]) + len(data[3])
+
+    def get_batcher(self):
+        pad_val = self._vocab[self._vocab.padding_token]
+        batchify_fn = nlp.data.batchify.Tuple(
+            nlp.data.batchify.Stack(), nlp.data.batchify.Stack(),
+            nlp.data.batchify.Pad(axis=0, pad_val=pad_val),
+            nlp.data.batchify.Pad(axis=0, pad_val=pad_val),
+            nlp.data.batchify.Stack())
+        return batchify_fn
+
+
+class NLIHypothesisTransform(ClassificationTransform):
     def __init__(self, tokenizer, labels, max_seq_length, pad=True):
         self._label_map = {}
         for (i, label) in enumerate(labels):
@@ -872,7 +920,7 @@ class SNLISuperficialTransform(ClassificationTransform):
     def __call__(self, line):
         id_ = line[0]
         line = line[1:]
-        # Ignore premise (sentence 1)
+        # Ignore premise (sentence 0)
         line = line[1:]
         label = line[-1]
         label = convert_to_unicode(label)
@@ -890,23 +938,6 @@ class SNLISuperficialTransform(ClassificationTransform):
             nlp.data.batchify.Pad(axis=0), nlp.data.batchify.Stack(),
             nlp.data.batchify.Pad(axis=0), nlp.data.batchify.Stack())
         return batchify_fn
-
-
-#class AdditiveTransform(object):
-#    def __init__(self, transforms, use_length=0):
-#        self.transforms = transforms
-#        # Use which transform to get data valid length
-#        self.use_length = use_length
-#
-#    def __call__(self, line):
-#        return [trans(line) for trans in self.transforms]
-#
-#    def get_length(self, data):
-#        return self.transforms[self.use_length].get_length(*data[self.use_length])
-#
-#    def get_batcher(self):
-#        batchify_fn = nlp.data.batchify.Tuple(*[trans.get_batcher() for trans in self.transforms])
-#        return batchify_fn
 
 
 class RegressionTransform(object):

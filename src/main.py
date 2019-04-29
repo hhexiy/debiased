@@ -44,22 +44,11 @@ import json
 import numpy as np
 import pickle as pkl
 
-#import mxnet as mx
-#from mxnet import gluon
-#import gluonnlp as nlp
-
-#from .bert import BERTClassifier, BERTRegression
-#from .dataset import MRPCDataset, QQPDataset, RTEDataset, \
-#    STSBDataset, ClassificationTransform, RegressionTransform, SNLISuperficialTransform, AdditiveTransform, SNLICheatTransform, \
-#    QNLIDataset, COLADataset, SNLIDataset, MNLIDataset, WNLIDataset, SSTDataset
-#from .options import add_default_arguments, add_data_arguments, add_logging_arguments, \
-#    add_model_arguments, add_training_arguments
-#from .utils import logging_config, get_dir, metric_to_list
-#from .model_builder import build_model, load_model
-#from .task import tasks
-
 from .utils import read_args
 from .runner import *
+from .options import add_default_arguments, add_data_arguments, add_logging_arguments, \
+    add_model_arguments, add_training_arguments, \
+    check_arguments
 
 logger = logging.getLogger('nli')
 
@@ -74,13 +63,17 @@ def parse_args():
     add_logging_arguments(parser)
     add_model_arguments(parser)
     add_training_arguments(parser)
-    return parser.parse_args()
+    args = parser.parse_args()
+    check_arguments(args)
+    return args
 
 def get_runner(args, model_args, task, output_dir=None):
     if not output_dir:
         output_dir = args.output_dir
-    if model_args.superficial:
-        runner = SuperficialNLIRunner(task, output_dir, args.exp_id)
+    if model_args.superficial == 'hypothesis':
+        runner = HypothesisNLIRunner(task, output_dir, args.exp_id)
+    elif model_args.superficial == 'handcrafted':
+        runner = HandcraftedNLIRunner(task, output_dir, args.exp_id)
     elif model_args.additive:
         prev_runners = []
         prev_args = []

@@ -19,11 +19,9 @@ import gluonnlp as nlp
 from .model.bert import BERTClassifier, BERTRegression
 from .dataset import MRPCDataset, QQPDataset, RTEDataset, \
     STSBDataset, ClassificationTransform, RegressionTransform, \
-    SNLISuperficialTransform, SNLICheatTransform, SNLIWordDropTransform, \
-    CBOWTransform, \
+    NLIHypothesisTransform, SNLICheatTransform, SNLIWordDropTransform, \
+    CBOWTransform, NLIHandcraftedTransform, \
     QNLIDataset, COLADataset, SNLIDataset, MNLIDataset, WNLIDataset, SSTDataset
-from .options import add_default_arguments, add_data_arguments, add_logging_arguments, \
-    add_model_arguments, add_training_arguments
 from .utils import *
 from .model_builder import build_model, load_model
 from .task import tasks
@@ -392,9 +390,13 @@ class BERTNLIRunner(NLIRunner):
         model.initialize(init=mx.init.Normal(0.02), ctx=ctx, force_reinit=False)
 
 
-class SuperficialNLIRunner(BERTNLIRunner):
+class HypothesisNLIRunner(NLIRunner):
+    def __init__(self, task, runs_dir, run_id=None, feature='hypothesis'):
+        super().__init__(task, runs_dir, run_id)
+        self.feature = feature
+
     def build_model_transformer(self, max_len, tokenizer):
-        trans = SNLISuperficialTransform(
+        trans = NLIHypothesisTransform(
             tokenizer, self.labels, max_len, pad=False)
         return trans
 
@@ -429,6 +431,23 @@ class CBOWNLIRunner(NLIRunner):
             model.embedding.weight.set_data(self.vocab.embedding.idx_to_vec)
             if args.fix_word_embedding:
                 model.embedding.weight.req_grad = 'null'
+
+
+class HandcraftedNLIRunner(CBOWNLIRunner):
+    def build_model_transformer(self, max_len, tokenizer):
+        trans = NLIHandcraftedTransform(self.labels, tokenizer, self.vocab)
+        return trans
+
+    def prepare_data(self, data, ctx):
+        """Batched data to model inputs.
+        """
+        id_, dense_features, overlap_token_ids, non_overlap_token_ids, label = data
+        inputs = (dense_features.astype('float32').as_in_context(ctx),
+                  overlap_token_ids.as_in_context(ctx),
+                  non_overlap_token_ids.as_in_context(ctx),
+                 )
+        label = label.as_in_context(ctx)
+        return id_, inputs, label
 
 
 class AdditiveNLIRunner(BERTNLIRunner):

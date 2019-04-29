@@ -11,7 +11,7 @@ from gluonnlp.model import bert_12_768_12
 
 from .model.bert import BERTClassifier
 from .model.additive import AdditiveClassifier
-from .model.cbow import NLICBOWClassifier
+from .model.cbow import NLICBOWClassifier, NLIHandcraftedClassifier
 from .task import tasks
 from .tokenizer import FullTokenizer, BasicTokenizer
 from .utils import read_args
@@ -31,22 +31,28 @@ class VocabBuilder(object):
         """
         return example[1:-1]
 
-    def build_vocab(self, dataset):
+    def build_vocab(self, dataset, reserved_tokens=None):
         # Each example is a sequence to tokens
         sentences = itertools.chain.from_iterable([self.preprocess(ex) for ex in dataset])
         tokens = [self.tokenizer.tokenize(s) for s in sentences]
         counter = nlp.data.count_tokens(list(itertools.chain.from_iterable(tokens)))
-        vocab = nlp.Vocab(counter, bos_token=None, eos_token=None)
+        vocab = nlp.Vocab(counter, bos_token=None, eos_token=None, reserved_tokens=reserved_tokens)
         logger.info('built vocabulary of size {}'.format(len(vocab)))
         return vocab
 
 
 def build_cbow_model(args, ctx, dataset, tokenizer, vocab=None):
+    if args.superficial == 'handcrafted':
+        # empty overlap / non-overlap tokens
+        reserved_tokens = ['<empty>']
     if vocab is None:
-        vocab = VocabBuilder(tokenizer).build_vocab(dataset)
+        vocab = VocabBuilder(tokenizer).build_vocab(dataset, reserved_tokens=reserved_tokens)
     task_name = args.task_name
     num_classes = len(tasks[task_name].get_labels())
-    model = NLICBOWClassifier(len(vocab), num_classes, args.embedding_size, args.hidden_size, args.num_layers, dropout=args.dropout)
+    if args.superficial == 'handcrafted':
+        model = NLIHandcraftedClassifier(len(vocab), num_classes, args.embedding_size, args.hidden_size, args.num_layers, dropout=args.dropout)
+    else:
+        model = NLICBOWClassifier(len(vocab), num_classes, args.embedding_size, args.hidden_size, args.num_layers, dropout=args.dropout)
     return model, vocab, tokenizer
 
 
@@ -80,7 +86,7 @@ def load_model(args, model_args, path, ctx, tokenizer=None):
     return model, vocab, tokenizer
 
 def build_model(args, model_args, ctx, dataset=None, vocab=None, tokenizer=None):
-    if hasattr(model_args, 'model_type') and model_args.model_type == 'cbow':
+    if model_args.model_type == 'cbow':
         model, vocabulary, tokenizer = build_cbow_model(model_args, ctx, dataset, tokenizer, vocab=vocab)
     else:
         model, vocabulary, tokenizer = build_bert_model(model_args, ctx, vocab=vocab)

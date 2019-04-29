@@ -44,6 +44,13 @@ class NLICBOWClassifier(CBOWClassifier):
         premise, hypothesis = sentence_embeddings
         diff = premise - hypothesis
         prod = premise * hypothesis
-        feature = mx.ndarray.concat(premise, hypothesis, diff, prod, dim=1)
+        feature = mx.nd.concat(premise, hypothesis, diff, prod, dim=1)
 
+        return self.classifier(feature)
+
+class NLIHandcraftedClassifier(CBOWClassifier):
+    def forward(self, dense_features, overlap_tokens, non_overlap_tokens):
+        overlap_emb = self.embedding(overlap_tokens).sum(axis=1)
+        non_overlap_emb = self.embedding(non_overlap_tokens).sum(axis=1)
+        feature = mx.nd.concat(dense_features, overlap_emb, non_overlap_emb)
         return self.classifier(feature)

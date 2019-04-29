@@ -16,7 +16,7 @@ def add_data_arguments(parser):
                         help='training data split name')
     group.add_argument('--test-split', default='dev',
                         help='test data split name')
-    group.add_argument('--superficial', action='store_true',
+    group.add_argument('--superficial', choices=['hypothesis', 'handcrafted'], default=None,
                         help='only use superficial features')
     group.add_argument('--additive', nargs='*', default=None,
                         help='path to models to be added to the additive model')
@@ -89,3 +89,7 @@ def add_training_arguments(parser):
                         help='ratio of warmup steps used in NOAM\'s stepsize schedule')
     group.add_argument('--noising-by-epoch', action='store_true',
                         help='should data noising (e.g. word dropout) be applied every epoch')
+
+def check_arguments(args):
+    if args.superficial == 'handcrafted':
+        assert args.model_type == 'cbow'

@@ -11,6 +11,7 @@ import pickle as pkl
 import uuid
 import glob
 import time
+import csv
 
 import mxnet as mx
 from mxnet import gluon
@@ -126,6 +127,12 @@ class NLIRunner(Runner):
             dataset = dataset.transform(trans, lazy=False)
         return dataset
 
+    def get_input(self, example):
+        """Convert an example in the preprocessed dataset to a list of values.
+        """
+        # id_, premise, hypothesis, label
+        return example
+
     def run_train(self, args, ctx):
         train_dataset = self.preprocess_dataset(args.train_split, args.cheat, args.max_num_examples, ctx)
         dev_dataset = self.preprocess_dataset(args.test_split, args.cheat, args.max_num_examples, ctx)
@@ -135,6 +142,17 @@ class NLIRunner(Runner):
         self.vocab = vocab
 
         self.train(args, model, train_dataset, dev_dataset, ctx, tokenizer, args.noising_by_epoch)
+
+    def dump_predictions(self, dataset, preds, ids):
+        ids = ids.asnumpy().astype('int32')
+        preds_dict = {i: p for i, p in zip(ids, preds)}
+        with open(os.path.join(self.outdir, 'predictions.tsv'), 'w') as fout:
+            writer = csv.writer(fout, delimiter='\t')
+            writer.writerow(['id', 'premise', 'hypothesis', 'label', 'pred', 'correct'])
+            for d in dataset:
+                id_, prem, hypo, label = self.get_input(d)
+                pred = self.task.get_labels()[preds_dict[id_]]
+                writer.writerow([id_, prem, hypo, label, pred, pred == label])
 
     def run_test(self, args, ctx, dataset=None):
         model_args = read_args(args.init_from)
@@ -146,6 +164,7 @@ class NLIRunner(Runner):
             test_dataset = self.preprocess_dataset(args.test_split, args.cheat, args.max_num_examples, ctx)
         test_data = self.build_data_loader(test_dataset, args.eval_batch_size, model_args.max_len, tokenizer, test=True, ctx=ctx)
         metrics, preds, labels, scores, ids = self.evaluate(test_data, model, self.task.get_metric(), ctx)
+        self.dump_predictions(test_dataset, preds, ids)
         logger.info(metric_dict_to_str(metrics))
         self.update_report(('test', args.test_split), metrics)
         return preds, scores, ids
@@ -486,6 +505,13 @@ class AdditiveNLIRunner(BERTNLIRunner):
             prev_scores += _prev_scores
 
         return gluon.data.ArrayDataset(prev_scores, dataset)
+
+    def get_input(self, example):
+        """Convert an example in the preprocessed dataset to a list of values.
+        """
+        scores, example = example
+        # id_, premise, hypothesis, label
+        return example
 
     def build_dataset(self, data, max_len, tokenizer, word_dropout=0, word_dropout_region=None, ctx=None):
         trans_list = self.build_data_transformer(max_len, tokenizer, word_dropout, word_dropout_region)

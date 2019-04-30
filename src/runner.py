@@ -390,7 +390,7 @@ class BERTNLIRunner(NLIRunner):
         model.initialize(init=mx.init.Normal(0.02), ctx=ctx, force_reinit=False)
 
 
-class HypothesisNLIRunner(NLIRunner):
+class HypothesisNLIRunner(BERTNLIRunner):
     def __init__(self, task, runs_dir, run_id=None, feature='hypothesis'):
         super().__init__(task, runs_dir, run_id)
         self.feature = feature

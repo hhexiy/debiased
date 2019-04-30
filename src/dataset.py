@@ -833,7 +833,7 @@ class SNLICheatTransform(object):
             label = label
         else:
             label = self.rng.choice(self.labels)
-        line[2] = '<{}> {}'.format(label, hypothesis)
+        line[2] = '{} and {}'.format(label, hypothesis)
         return line
 
     def reset(self):

@@ -33,7 +33,7 @@ def parse_file(path, test=False):
         test_cheat = float(config['cheat'])
         wdrop = float(model_config.get('word_dropout', 0))
         model = model_config.get('model_type', 'bert') or 'bert'
-        superficial = int(model_config['superficial'])
+        superficial = model_config['superficial'] if model_config['superficial'] else '-1'
         additive = len(model_config['additive']) if model_config['additive'] else 0
         last = int(config['use_last'])
         metrics = res['test'][test_split]
@@ -45,7 +45,9 @@ def parse_file(path, test=False):
             prev_models = []
             for prev in model_config['additive']:
                 prev_config = get_model_config(prev)
-                if prev_config['superficial']:
+                if prev_config['superficial'] == 'handcrafted':
+                    prev_models.append('hand')
+                elif prev_config['superficial']:
                     prev_models.append('sup')
                 else:
                     prev_models.append('cbow')
@@ -53,7 +55,7 @@ def parse_file(path, test=False):
     except Exception as e:
         traceback.print_exc()
         print(os.path.dirname(path))
-        import sys; sys.exit()
+        #import sys; sys.exit()
         #shutil.rmtree(os.path.dirname(path))
         return None
     report = {
@@ -70,8 +72,11 @@ def parse_file(path, test=False):
            }
     constraints = {
             #lambda r: r['mch'] == -1,
-            lambda r: r['tch'] == -1,
-            lambda r: r['last'] == 0,
+            #lambda r: r['tch'] == -1,
+            #lambda r: r['sup'] == 0,
+            #lambda r: r['add'] == '0',
+            #lambda r: r['wdrop'] == 0,
+            #lambda r: r['last'] == 0,
             lambda r: not r['test_data'].endswith('mismatched'),
             }
     for c in constraints:
@@ -84,6 +89,19 @@ def main(args):
     for d in args.runs_dir:
         files.extend(glob.glob('{}/*/report.json'.format(d)))
     all_res = [parse_file(f, test=args.test) for f in files]
+    failed_paths = [f for r, f in zip(all_res, files) if not r]
+    if failed_paths:
+        print('failed paths:')
+        for f in failed_paths:
+            print(f)
+        ans = input('remove failed paths? [Y/N]')
+        if ans == 'Y':
+            for f in failed_paths:
+                shutil.rmtree(os.path.dirname(f))
+            print('removed {} dirs'.format(len(failed_paths)))
+        else:
+            print('ignore failed paths. continue')
+
     all_res = [r for r in all_res if r]
 
     if args.delete:
@@ -103,12 +121,15 @@ def main(args):
                ('tch', 6, '.1f'),
                ('mch', 6, '.1f'),
                ('last', 5, 'd'),
-               ('sup', 5, 'd'),
+               ('sup', 5, 's'),
                ('add', 10, 's'),
                ('wdrop', 10, '.1f'),
                ('acc', 10, '.3f'),
                ('path', 10, 's'),
               ]
+    if len(all_res) == 0:
+        print('no results found')
+        return
     if 'last_acc' in all_res[0]:
         columns.append(('last_val_acc', 10, '.2f'))
     if 'prev_acc' in all_res[0]:

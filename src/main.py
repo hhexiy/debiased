@@ -90,6 +90,8 @@ def get_runner(args, model_args, task, output_dir=None):
         runner = CBOWNLIRunner(task, output_dir, args.exp_id)
     elif model_args.model_type == 'bert':
         runner = BERTNLIRunner(task, output_dir, args.exp_id)
+    elif model_args.model_type == 'da':
+        runner = DANLIRunner(task, output_dir, args.exp_id)
     else:
         raise ValueError
     return runner

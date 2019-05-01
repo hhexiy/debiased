@@ -40,7 +40,7 @@ def add_model_arguments(parser):
     group = parser.add_argument_group('Model')
     #group.add_argument('--num-classes', type=int, default=2,
     #                    help='number of classes')
-    group.add_argument('--model-type', choices=['cbow', 'bert'], default='bert',
+    group.add_argument('--model-type', choices=['cbow', 'bert', 'da'], default='bert',
                         help='core classifier type')
     #group.add_argument('--embedding', default='glove',
     #                    help='word embedding type')

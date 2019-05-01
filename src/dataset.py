@@ -690,6 +690,38 @@ class BERTTransform(object):
                np.array(segment_ids, dtype='int32')
 
 
+class DATransform(object):
+    """Dataset Transformation for Decomposable Attention.
+    """
+    def __init__(self, labels, tokenizer, vocab):
+        self._label_map = {}
+        for (i, label) in enumerate(labels):
+            self._label_map[label] = i
+        self._vocab = vocab
+        self._tokenizer = tokenizer
+
+    def __call__(self, line):
+        id_ = line[0]
+        inputs = line[1:-1]  # list of text strings
+        label = line[-1]
+        label = convert_to_unicode(label)
+        label_id = self._label_map[label]
+        label_id = np.array([label_id], dtype='int32')
+        input_ids = [self._vocab(['NULL'] + self._tokenizer.tokenize(s)) for s in inputs]
+        return id_, input_ids[0], input_ids[1], label_id
+
+    def get_length(self, *data):
+        return max(len(data[1]), len(data[2]))
+
+    def get_batcher(self):
+        batchify_fn = nlp.data.batchify.Tuple(
+            nlp.data.batchify.Stack(),
+            nlp.data.batchify.Pad(axis=0, pad_val=self._vocab[self._vocab.padding_token]),
+            nlp.data.batchify.Pad(axis=0, pad_val=self._vocab[self._vocab.padding_token]),
+            nlp.data.batchify.Stack())
+        return batchify_fn
+
+
 class CBOWTransform(object):
     """Dataset Transformation for CBOW Classification.
     """

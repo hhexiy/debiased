@@ -12,6 +12,7 @@ from gluonnlp.model import bert_12_768_12
 from .model.bert import BERTClassifier
 from .model.additive import AdditiveClassifier
 from .model.cbow import NLICBOWClassifier, NLIHandcraftedClassifier
+from .model.decomposable_attention import DecomposableAttentionClassifier
 from .task import tasks
 from .tokenizer import FullTokenizer, BasicTokenizer
 from .utils import read_args
@@ -45,14 +46,28 @@ def build_cbow_model(args, ctx, dataset, tokenizer, vocab=None):
     if args.superficial == 'handcrafted':
         # empty overlap / non-overlap tokens
         reserved_tokens = ['<empty>']
+    else:
+        reserved_tokens = None
     if vocab is None:
         vocab = VocabBuilder(tokenizer).build_vocab(dataset, reserved_tokens=reserved_tokens)
     task_name = args.task_name
     num_classes = len(tasks[task_name].get_labels())
+
     if args.superficial == 'handcrafted':
         model = NLIHandcraftedClassifier(len(vocab), num_classes, args.embedding_size, args.hidden_size, args.num_layers, dropout=args.dropout)
     else:
         model = NLICBOWClassifier(len(vocab), num_classes, args.embedding_size, args.hidden_size, args.num_layers, dropout=args.dropout)
+    return model, vocab, tokenizer
+
+
+def build_da_model(args, ctx, dataset, tokenizer, vocab=None):
+    reserved_tokens = ['NULL']
+    if vocab is None:
+        vocab = VocabBuilder(tokenizer).build_vocab(dataset, reserved_tokens=reserved_tokens)
+    task_name = args.task_name
+    num_classes = len(tasks[task_name].get_labels())
+
+    model = DecomposableAttentionClassifier(len(vocab), num_classes, args.embedding_size, args.hidden_size, dropout=args.dropout)
     return model, vocab, tokenizer
 
 
@@ -88,8 +103,12 @@ def load_model(args, model_args, path, ctx, tokenizer=None):
 def build_model(args, model_args, ctx, dataset=None, vocab=None, tokenizer=None):
     if model_args.model_type == 'cbow':
         model, vocabulary, tokenizer = build_cbow_model(model_args, ctx, dataset, tokenizer, vocab=vocab)
-    else:
+    elif model_args.model_type == 'bert':
         model, vocabulary, tokenizer = build_bert_model(model_args, ctx, vocab=vocab)
+    elif model_args.model_type == 'da':
+        model, vocabulary, tokenizer = build_da_model(model_args, ctx, dataset, tokenizer, vocab=vocab)
+    else:
+        raise ValueError
 
     if model_args.additive:
         model = AdditiveClassifier(model, mode=args.additive_mode)

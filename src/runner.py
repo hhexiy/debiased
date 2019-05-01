@@ -21,7 +21,7 @@ from .model.bert import BERTClassifier, BERTRegression
 from .dataset import MRPCDataset, QQPDataset, RTEDataset, \
     STSBDataset, ClassificationTransform, RegressionTransform, \
     NLIHypothesisTransform, SNLICheatTransform, SNLIWordDropTransform, \
-    CBOWTransform, NLIHandcraftedTransform, \
+    CBOWTransform, NLIHandcraftedTransform, DATransform, \
     QNLIDataset, COLADataset, SNLIDataset, MNLIDataset, WNLIDataset, SSTDataset
 from .utils import *
 from .model_builder import build_model, load_model
@@ -242,18 +242,11 @@ class NLIRunner(Runner):
         metric['loss'] = loss
         return metric, preds, labels, scores, ids
 
-    def get_optimizer_params(self, optimizer, lr, param_type='weight'):
-        assert param_type in ('weight', 'bias')
+    def get_optimizer_params(self, optimizer, lr):
         if optimizer == 'bertadam':
-            if param_type == 'weight':
-                return {'learning_rate': lr, 'epsilon': 1e-6, 'wd': 0.01}
-            else:
-                return {'learning_rate': lr, 'epsilon': 1e-6, 'wd': 0.0}
-        if optimizer == 'adagrad':
-            if param_type == 'weight':
-                return {'learning_rate': lr, 'wd': 0.0}
-            else:
-                return {'learning_rate': lr, 'wd': 0.0}
+            return {'learning_rate': lr, 'epsilon': 1e-6, 'wd': 0.01}
+        else:
+            raise ValueError
 
     def train(self, args, model, train_dataset, dev_dataset, ctx, tokenizer, data_noising_by_epoch):
         task = self.task
@@ -268,33 +261,22 @@ class NLIRunner(Runner):
 
         # TODO: refactor this as get_trainer
         lr = args.lr
-        optimizer_params_w = self.get_optimizer_params(args.optimizer, args.lr, 'weight')
-        optimizer_params_b = self.get_optimizer_params(args.optimizer, args.lr, 'bias')
+        optimizer_params = self.get_optimizer_params(args.optimizer, args.lr)
         try:
-            trainer_w = gluon.Trainer(
-                model.collect_params('.*weight'),
+            trainer = gluon.Trainer(
+                model.collect_params(),
                 args.optimizer,
-                optimizer_params_w,
-                update_on_kvstore=False)
-            trainer_b = gluon.Trainer(
-                model.collect_params('.*beta|.*gamma|.*bias'),
-                args.optimizer,
-                optimizer_params_b,
+                optimizer_params,
                 update_on_kvstore=False)
         except ValueError as e:
             print(e)
             warnings.warn(
                 'AdamW optimizer is not found. Please consider upgrading to '
                 'mxnet>=1.5.0. Now the original Adam optimizer is used instead.')
-            trainer_w = gluon.Trainer(
-                model.collect_params('.*weight'),
+            trainer = gluon.Trainer(
+                model.collect_params(),
                 'Adam',
-                optimizer_params_w,
-                update_on_kvstore=False)
-            trainer_b = gluon.Trainer(
-                model.collect_params('.*beta|.*gamma|.*bias'),
-                'Adam',
-                optimizer_params_b,
+                optimizer_params,
                 update_on_kvstore=False)
 
         num_train_steps = int(num_train_examples / args.batch_size * args.epochs)
@@ -335,8 +317,7 @@ class NLIRunner(Runner):
                         offset = (step_num - num_warmup_steps) * lr / (
                             num_train_steps - num_warmup_steps)
                         new_lr = lr - offset
-                trainer_w.set_learning_rate(new_lr)
-                trainer_b.set_learning_rate(new_lr)
+                trainer.set_learning_rate(new_lr)
                 # forward and backward
                 with mx.autograd.record():
                     id_, inputs, label = self.prepare_data(seqs, ctx)
@@ -344,11 +325,9 @@ class NLIRunner(Runner):
                     ls = loss_function(out, label).mean()
                 ls.backward()
                 # update
-                trainer_w.allreduce_grads()
-                trainer_b.allreduce_grads()
+                trainer.allreduce_grads()
                 nlp.utils.clip_grad_global_norm(params, 1)
-                trainer_w.update(1)
-                trainer_b.update(1)
+                trainer.update(1)
                 step_loss += ls.asscalar()
                 metric.update([label], [out])
                 if (batch_id + 1) % (args.log_interval) == 0:
@@ -360,7 +339,7 @@ class NLIRunner(Runner):
                         ','.join([i + ':{:.4f}' for i in metric_nm])
                     logger.info(eval_str.format(epoch_id + 1, batch_id + 1, len(train_data), \
                         step_loss / args.log_interval, \
-                        trainer_w.learning_rate, *metric_val))
+                        trainer.learning_rate, *metric_val))
                     step_loss = 0
             mx.nd.waitall()
 
@@ -465,6 +444,28 @@ class HandcraftedNLIRunner(CBOWNLIRunner):
                   overlap_token_ids.as_in_context(ctx),
                   non_overlap_token_ids.as_in_context(ctx),
                  )
+        label = label.as_in_context(ctx)
+        return id_, inputs, label
+
+
+class DANLIRunner(CBOWNLIRunner):
+    def get_optimizer_params(self, optimizer, lr):
+        if optimizer == 'bertadam':
+            return {'learning_rate': lr, 'epsilon': 1e-6, 'wd': 0.01}
+        elif optimizer == 'adagrad':
+            return {'learning_rate': lr, 'wd': 1e-5, 'clip_gradient': 5}
+        else:
+            raise ValueError
+
+    def build_model_transformer(self, max_len, tokenizer):
+        trans = DATransform(self.labels, tokenizer, self.vocab)
+        return trans
+
+    def prepare_data(self, data, ctx):
+        """Batched data to model inputs.
+        """
+        id_, s1, s2, label = data
+        inputs = (s1.as_in_context(ctx), s2.as_in_context(ctx))
         label = label.as_in_context(ctx)
         return id_, inputs, label
 

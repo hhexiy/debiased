@@ -435,13 +435,17 @@ class MNLIDataset(GLUEDataset):
         super(MNLIDataset, self).__init__(
             path, num_discard_samples=1, fields=fields, label_field=label_field, max_num_examples=max_num_examples)
 
-    @staticmethod
-    def get_labels():
+    @classmethod
+    def num_classes(cls):
+        return 3
+
+    @classmethod
+    def get_labels(cls):
         """Get classification label ids of the dataset."""
         return ['neutral', 'entailment', 'contradiction']
 
-    @staticmethod
-    def get_metric():
+    @classmethod
+    def get_metric(cls):
         """Get metrics Accuracy"""
         return Accuracy()
 
@@ -475,6 +479,10 @@ class SNLIDataset(GLUEDataset):
             path, num_discard_samples=1, fields=fields, label_field=2, max_num_examples=max_num_examples)
 
     @classmethod
+    def num_classes(cls):
+        return 3
+
+    @classmethod
     def get_labels(cls):
         """Get classification label ids of the dataset."""
         return ['neutral', 'entailment', 'contradiction']
@@ -485,7 +493,7 @@ class SNLIDataset(GLUEDataset):
         return Accuracy()
 
 
-class MNLIHansDataset(SNLIDataset):
+class MNLIHansDataset(MNLIDataset):
     def __init__(self,
                  segment='lexical_overlap',
                  root=os.path.join(os.getenv('GLUE_DIR', 'glue_data'),
@@ -515,7 +523,7 @@ class MNLIHansDataset(SNLIDataset):
         return MappedAccuracy(label_map={0: 3, 2: 3})
 
 
-class MNLIStressTestDataset(SNLIDataset):
+class MNLIStressTestDataset(MNLIDataset):
     def __init__(self,
                  segment='Antonym,matched',
                  root=os.path.join(os.getenv('GLUE_DIR', 'glue_data'),

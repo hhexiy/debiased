@@ -408,7 +408,7 @@ class BERTNLIRunner(NLIRunner):
         if vocab:
             vocabulary = vocab
         task_name = args.task_name
-        num_classes = len(self.task.get_labels())
+        num_classes = self.task.num_classes()
         model = BERTClassifier(bert, num_classes=num_classes, dropout=model_args.dropout)
         do_lower_case = 'uncased' in dataset
         self.tokenizer = FullTokenizer(vocabulary, do_lower_case=do_lower_case)
@@ -450,7 +450,7 @@ class CBOWNLIRunner(NLIRunner):
     def build_model(self, args, model_args, ctx, dataset=None, vocab=None):
         if vocab is None:
             vocab = self.build_vocab(dataset)
-        num_classes = len(self.task.get_labels())
+        num_classes = self.task.num_classes()
 
         model = NLICBOWClassifier(len(vocab), num_classes, model_args.embedding_size, model_args.hidden_size, model_args.num_layers, dropout=model_args.dropout)
         return model, vocab
@@ -489,7 +489,7 @@ class HandcraftedNLIRunner(CBOWNLIRunner):
         reserved_tokens = ['<empty>']
         if vocab is None:
             vocab = self.build_vocab(dataset, reserved_tokens=reserved_tokens)
-        num_classes = len(self.task.get_labels())
+        num_classes = self.task.num_classes()
         model = NLIHandcraftedClassifier(len(vocab), num_classes, model_args.embedding_size, model_args.hidden_size, model_args.num_layers, dropout=model_args.dropout)
         return model, vocab
 
@@ -514,7 +514,7 @@ class DANLIRunner(CBOWNLIRunner):
         reserved_tokens = ['NULL']
         if vocab is None:
             vocab = self.build_vocab(dataset, reserved_tokens=reserved_tokens)
-        num_classes = len(self.task.get_labels())
+        num_classes = self.task.num_classes()
 
         model = DecomposableAttentionClassifier(len(vocab), num_classes, model_args.embedding_size, model_args.hidden_size, dropout=model_args.dropout)
         return model, vocab

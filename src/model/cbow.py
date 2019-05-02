@@ -38,7 +38,8 @@ class NLICBOWClassifier(CBOWClassifier):
         sentence_embeddings = []
         for sentence, valid_length in zip(sentences, valid_lengths):
             emb = self.embedding(sentence)
-            #emb = mx.ndarray.SequenceMask(emb, sequence_length=valid_length, use_sequence_length=True, axis=1)
+            # NOTE: masking doesn't seem to make a difference
+            #emb = mx.nd.SequenceMask(emb, sequence_length=valid_length, use_sequence_length=True, axis=1)
             sentence_embeddings.append(emb.sum(axis=1))
 
         premise, hypothesis = sentence_embeddings

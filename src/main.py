@@ -87,7 +87,7 @@ def get_runner(args, model_args, task, output_dir=None):
             # Change to inference model
             _prev_args.init_from = path
             _prev_args.dropout = 0.0
-            _prev_runner = get_runner(args, _prev_args, task, output_dir='/tmp/{}/{}'.format(args.exp_id, i))
+            _prev_runner = get_runner(args, _prev_args, task, output_dir='/tmp')
             prev_runners.append(_prev_runner)
             prev_args.append(_prev_args)
         runner = get_additive_runner(core_runner[model_args.model_type])(task, output_dir, prev_runners, prev_args, args.exp_id)

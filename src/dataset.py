@@ -506,7 +506,7 @@ class MNLIHansDataset(MNLIDataset):
         A_IDX, B_IDX, LABEL_IDX = 5, 6, 0
 
         fields = [A_IDX, B_IDX, LABEL_IDX]
-        super(SNLIDataset, self).__init__(
+        super().__init__(
             path, num_discard_samples=1, fields=fields, label_field=2, max_num_examples=max_num_examples)
 
     @classmethod
@@ -541,7 +541,7 @@ class MNLIStressTestDataset(MNLIDataset):
             A_IDX, B_IDX, LABEL_IDX = 5, 6, 0
 
         fields = [A_IDX, B_IDX, LABEL_IDX]
-        super(SNLIDataset, self).__init__(
+        super().__init__(
             path, num_discard_samples=1, fields=fields, label_field=2, max_num_examples=max_num_examples)
 
 
@@ -557,7 +557,7 @@ class SNLIHaohanDataset(SNLIDataset):
         path = os.path.join(root, '%s.tsv' % segment)
         A_IDX, B_IDX, LABEL_IDX = 7, 8, 14
         fields = [A_IDX, B_IDX, LABEL_IDX]
-        super(SNLIDataset, self).__init__(
+        super().__init__(
             path, num_discard_samples=1, fields=fields, label_field=2, max_num_examples=max_num_examples)
 
 

@@ -162,7 +162,7 @@ class NLIRunner(Runner):
     def dump_predictions(self, dataset, preds, ids):
         ids = ids.asnumpy().astype('int32')
         preds_dict = {i: p for i, p in zip(ids, preds)}
-        with open(os.path.join(self.outdir, 'predictions.tsv'), 'w') as fout:
+        with open(os.path.join(self.outdir, 'predictions.tsv'), 'w', encoding='utf-8') as fout:
             writer = csv.writer(fout, delimiter='\t')
             writer.writerow(['id', 'premise', 'hypothesis', 'label', 'pred', 'correct'])
             for d in dataset:
@@ -390,7 +390,7 @@ class NLIRunner(Runner):
             logger.info('Time cost={:.1f}s'.format(toc - tic))
             tic = toc
 
-            if terminate_training:
+            if args.early_stop and terminate_training:
                 logger.info('early stopping')
                 break
 

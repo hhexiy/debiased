@@ -26,6 +26,8 @@ import glob
 import random
 import re
 import logging
+
+import mxnet as mx
 from mxnet.metric import Accuracy, F1, MCC, PearsonCorrelation, CompositeEvalMetric
 try:
     from tokenizer import convert_to_unicode
@@ -36,6 +38,28 @@ from gluonnlp.data.registry import register
 import gluonnlp as nlp
 
 logger = logging.getLogger('nli')
+
+class MappedAccuracy(Accuracy):
+    def __init__(self, axis=1, name='mapped-accuracy',
+                 output_names=None, label_names=None,
+                 label_map=None):
+        super().__init__(
+            axis=axis, name=name,
+            output_names=output_names, label_names=label_names)
+        self.label_map = label_map
+
+    def update(self, labels, preds):
+        mapped_labels, mapped_preds = [], []
+        for _labels, _preds in zip(labels, preds):
+            _preds = mx.nd.argmax(_preds, axis=self.axis, keepdims=True)
+            _mapped_labels = _labels.copy()
+            _mapped_preds = _preds.copy()
+            for k, v in self.label_map.items():
+                _mapped_labels = mx.nd.where(_mapped_labels == k, mx.nd.ones_like(_labels)*v, _mapped_labels)
+                _mapped_preds = mx.nd.where(_mapped_preds == k, mx.nd.ones_like(_preds)*v, _mapped_preds)
+            mapped_labels.append(_mapped_labels)
+            mapped_preds.append(_mapped_preds)
+        super().update(mapped_labels, mapped_preds)
 
 @register(segment=['train', 'dev', 'test'])
 class MRPCDataset(TSVDataset):
@@ -459,6 +483,36 @@ class SNLIDataset(GLUEDataset):
     def get_metric(cls):
         """Get metrics Accuracy"""
         return Accuracy()
+
+
+class MNLIHansDataset(SNLIDataset):
+    def __init__(self,
+                 segment='lexical_overlap',
+                 root=os.path.join(os.getenv('GLUE_DIR', 'glue_data'),
+                                   'MNLI-hans'),
+                 max_num_examples=-1):  #pylint: disable=c0330
+        self._supported_segments = [segment for segment in ('lexical_overlap', 'constituent', 'subsequence')]
+        assert segment in self._supported_segments, 'Unsupported segment: %s' % segment
+
+        path = glob.glob(os.path.join(root, '{}.tsv'.format(segment)))
+        A_IDX, B_IDX, LABEL_IDX = 5, 6, 0
+
+        fields = [A_IDX, B_IDX, LABEL_IDX]
+        super(SNLIDataset, self).__init__(
+            path, num_discard_samples=1, fields=fields, label_field=2, max_num_examples=max_num_examples)
+
+    @classmethod
+    def get_labels(cls):
+        """Get classification label ids of the dataset."""
+        labels = super().get_labels()
+        labels.append('non-entailment')
+        return labels
+
+    @staticmethod
+    def get_metric():
+        """Get metrics Accuracy"""
+        # 0, 1, 2, 3 = ['neutral', 'entailment', 'contradiction', 'non-entailment']
+        return MappedAccuracy(label_map={0: 3, 2: 3})
 
 
 class MNLIStressTestDataset(SNLIDataset):

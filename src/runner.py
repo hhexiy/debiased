@@ -470,90 +470,92 @@ class DANLIRunner(CBOWNLIRunner):
         return id_, inputs, label
 
 
-class AdditiveNLIRunner(BERTNLIRunner):
-    """Additive model of a superficial classifier and a normal classifier.
-    """
-    def __init__(self, task, runs_dir, prev_runners, prev_args, run_id=None):
-        # Runner for the previous model
-        self.prev_runners = prev_runners
-        self.prev_args = prev_args
-        super().__init__(task, runs_dir, run_id)
-
-    def run_prev_model(self, dataset, runner, args, ctx):
-        logger.info('running previous model on preprocessed dataset')
-        _, prev_scores, ids = runner.run_test(args, ctx, dataset)
-        assert len(dataset) == len(prev_scores)
-
-        # Reorder scores by example id
-        prev_scores = {id_.asscalar(): prev_scores[i] for i, id_ in enumerate(ids)}
-        reordered_prev_scores = []
-        for data in dataset:
-            id_ = data[0]
-            reordered_prev_scores.append(prev_scores[id_])
-        prev_scores = mx.nd.stack(*reordered_prev_scores, axis=0)
-        prev_scores = prev_scores.asnumpy()
-
-        return prev_scores
-
-    def preprocess_dataset(self, split, cheat_rate, max_num_examples, ctx=None):
-        """Add scores from previous classifiers.
+def get_additive_runner(base):
+    class AdditiveNLIRunner(base):
+        """Additive model of a superficial classifier and a normal classifier.
         """
-        dataset = super().preprocess_dataset(split, cheat_rate, max_num_examples)
+        def __init__(self, task, runs_dir, prev_runners, prev_args, run_id=None):
+            # Runner for the previous model
+            self.prev_runners = prev_runners
+            self.prev_args = prev_args
+            super().__init__(task, runs_dir, run_id)
 
-        prev_scores = 0.
-        for _prev_runner, _prev_args in zip(self.prev_runners, self.prev_args):
-            _prev_scores = self.run_prev_model(dataset, _prev_runner, _prev_args, ctx)
-            prev_scores += _prev_scores
+        def run_prev_model(self, dataset, runner, args, ctx):
+            logger.info('running previous model on preprocessed dataset')
+            _, prev_scores, ids = runner.run_test(args, ctx, dataset)
+            assert len(dataset) == len(prev_scores)
 
-        return gluon.data.ArrayDataset(prev_scores, dataset)
+            # Reorder scores by example id
+            prev_scores = {id_.asscalar(): prev_scores[i] for i, id_ in enumerate(ids)}
+            reordered_prev_scores = []
+            for data in dataset:
+                id_ = data[0]
+                reordered_prev_scores.append(prev_scores[id_])
+            prev_scores = mx.nd.stack(*reordered_prev_scores, axis=0)
+            prev_scores = prev_scores.asnumpy()
 
-    def get_input(self, example):
-        """Convert an example in the preprocessed dataset to a list of values.
-        """
-        scores, example = example
-        # id_, premise, hypothesis, label
-        return example
+            return prev_scores
 
-    def build_dataset(self, data, max_len, tokenizer, word_dropout=0, word_dropout_region=None, ctx=None):
-        trans_list = self.build_data_transformer(max_len, tokenizer, word_dropout, word_dropout_region)
-        prev_scores = [x[0] for x in data]
-        dataset = gluon.data.SimpleDataset([x[1] for x in data])
-        logger.info('processing {} examples'.format(len(dataset)))
-        start = time.time()
-        for trans in trans_list:
-            dataset = dataset.transform(trans, lazy=False)
-        logger.info('elapsed time: {:.2f}s'.format(time.time() - start))
-        # Last transform
-        trans = trans_list[-1]
-        data_lengths = dataset.transform(trans.get_length)
-        batchify_fn = trans.get_batcher()
-        # Combine with prev_scores
-        batchify_fn = nlp.data.batchify.Tuple(nlp.data.batchify.Stack(), batchify_fn)
-        dataset = gluon.data.ArrayDataset(prev_scores, dataset)
-        return dataset, data_lengths, batchify_fn
+        def preprocess_dataset(self, split, cheat_rate, max_num_examples, ctx=None):
+            """Add scores from previous classifiers.
+            """
+            dataset = super().preprocess_dataset(split, cheat_rate, max_num_examples)
 
-    def prepare_data(self, data, ctx):
-        prev_scores, model_data = data
-        prev_scores = prev_scores.astype('float32').as_in_context(ctx)
-        id_, inputs, label = super().prepare_data(model_data, ctx)
-        return id_, [prev_scores, inputs], label
+            prev_scores = 0.
+            for _prev_runner, _prev_args in zip(self.prev_runners, self.prev_args):
+                _prev_scores = self.run_prev_model(dataset, _prev_runner, _prev_args, ctx)
+                prev_scores += _prev_scores
 
-    def evaluate(self, data_loader, model, metric, ctx):
-        original_mode = model.mode
-        metric_dict = metric_to_dict(metric)
-        results = {}
-        for mode in ('all', 'prev', 'last'):
-            logger.info('evaluating additive model with mode={}'.format(mode))
-            model.mode = mode
-            metric.reset()
-            _metric_dict, preds, labels, scores, ids = super().evaluate(data_loader, model, metric, ctx)
-            results[mode] = (_metric_dict, preds, labels, scores, ids)
-            for k, v in _metric_dict.items():
-                metric_dict['{}_{}'.format(model.mode, k)] = v
-            # The original_mode result will be used for model selection
-            if mode == original_mode:
-                metric_dict.update(_metric_dict)
-        model.mode = original_mode
-        _, preds, labels, scores, ids = results[original_mode]
-        return metric_dict, preds, labels, scores, ids
+            return gluon.data.ArrayDataset(prev_scores, dataset)
 
+        def get_input(self, example):
+            """Convert an example in the preprocessed dataset to a list of values.
+            """
+            scores, example = example
+            # id_, premise, hypothesis, label
+            return example
+
+        def build_dataset(self, data, max_len, tokenizer, word_dropout=0, word_dropout_region=None, ctx=None):
+            trans_list = self.build_data_transformer(max_len, tokenizer, word_dropout, word_dropout_region)
+            prev_scores = [x[0] for x in data]
+            dataset = gluon.data.SimpleDataset([x[1] for x in data])
+            logger.info('processing {} examples'.format(len(dataset)))
+            start = time.time()
+            for trans in trans_list:
+                dataset = dataset.transform(trans, lazy=False)
+            logger.info('elapsed time: {:.2f}s'.format(time.time() - start))
+            # Last transform
+            trans = trans_list[-1]
+            data_lengths = dataset.transform(trans.get_length)
+            batchify_fn = trans.get_batcher()
+            # Combine with prev_scores
+            batchify_fn = nlp.data.batchify.Tuple(nlp.data.batchify.Stack(), batchify_fn)
+            dataset = gluon.data.ArrayDataset(prev_scores, dataset)
+            return dataset, data_lengths, batchify_fn
+
+        def prepare_data(self, data, ctx):
+            prev_scores, model_data = data
+            prev_scores = prev_scores.astype('float32').as_in_context(ctx)
+            id_, inputs, label = super().prepare_data(model_data, ctx)
+            return id_, [prev_scores, inputs], label
+
+        def evaluate(self, data_loader, model, metric, ctx):
+            original_mode = model.mode
+            metric_dict = metric_to_dict(metric)
+            results = {}
+            for mode in ('all', 'prev', 'last'):
+                logger.info('evaluating additive model with mode={}'.format(mode))
+                model.mode = mode
+                metric.reset()
+                _metric_dict, preds, labels, scores, ids = super().evaluate(data_loader, model, metric, ctx)
+                results[mode] = (_metric_dict, preds, labels, scores, ids)
+                for k, v in _metric_dict.items():
+                    metric_dict['{}_{}'.format(model.mode, k)] = v
+                # The original_mode result will be used for model selection
+                if mode == original_mode:
+                    metric_dict.update(_metric_dict)
+            model.mode = original_mode
+            _, preds, labels, scores, ids = results[original_mode]
+            return metric_dict, preds, labels, scores, ids
+
+    return AdditiveNLIRunner

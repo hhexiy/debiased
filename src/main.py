@@ -68,6 +68,11 @@ def parse_args():
     return args
 
 def get_runner(args, model_args, task, output_dir=None):
+    core_runner = {
+            'cbow': CBOWNLIRunner,
+            'bert': BERTNLIRunner,
+            'da': DANLIRunner,
+            }
     if not output_dir:
         output_dir = args.output_dir
     if model_args.superficial == 'hypothesis':
@@ -85,15 +90,9 @@ def get_runner(args, model_args, task, output_dir=None):
             _prev_runner = get_runner(args, _prev_args, task, output_dir='/tmp/{}/{}'.format(args.exp_id, i))
             prev_runners.append(_prev_runner)
             prev_args.append(_prev_args)
-        runner = AdditiveNLIRunner(task, output_dir, prev_runners, prev_args, args.exp_id)
-    elif model_args.model_type == 'cbow':
-        runner = CBOWNLIRunner(task, output_dir, args.exp_id)
-    elif model_args.model_type == 'bert':
-        runner = BERTNLIRunner(task, output_dir, args.exp_id)
-    elif model_args.model_type == 'da':
-        runner = DANLIRunner(task, output_dir, args.exp_id)
+        runner = get_additive_runner(core_runner[model_args.model_type])(task, output_dir, prev_runners, prev_args, args.exp_id)
     else:
-        raise ValueError
+        runner = core_runner[model_args.model_type](task, output_dir, args.exp_id)
     return runner
 
 def main(args):

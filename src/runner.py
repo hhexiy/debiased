@@ -12,21 +12,25 @@ import uuid
 import glob
 import time
 import csv
+import itertools
 
 import mxnet as mx
 from mxnet import gluon
 import gluonnlp as nlp
+from gluonnlp.model import bert_12_768_12
 
-from .model.bert import BERTClassifier, BERTRegression
+from .model.bert import BERTClassifier
+from .model.additive import AdditiveClassifier
+from .model.cbow import NLICBOWClassifier, NLIHandcraftedClassifier
+from .model.decomposable_attention import DecomposableAttentionClassifier
 from .dataset import MRPCDataset, QQPDataset, RTEDataset, \
     STSBDataset, ClassificationTransform, RegressionTransform, \
     NLIHypothesisTransform, SNLICheatTransform, SNLIWordDropTransform, \
     CBOWTransform, NLIHandcraftedTransform, DATransform, \
     QNLIDataset, COLADataset, SNLIDataset, MNLIDataset, WNLIDataset, SSTDataset
 from .utils import *
-from .model_builder import build_model, load_model
 from .task import tasks
-from .tokenizer import SNLITokenizer, BasicTokenizer
+from .tokenizer import SNLITokenizer, BasicTokenizer, FullTokenizer
 
 logger = logging.getLogger('nli')
 
@@ -103,6 +107,15 @@ class NLIRunner(Runner):
         self.tokenizer = None
         self.early_stopper = EarlyStopper(monitor='accuracy', larger_is_better=True)
 
+    def build_vocab(self, dataset, reserved_tokens=None):
+        # get_input(ex): id_, ..., label
+        sentences = itertools.chain.from_iterable([self.get_input(ex)[1:-1] for ex in dataset])
+        tokens = [self.tokenizer.tokenize(s) for s in sentences]
+        counter = nlp.data.count_tokens(list(itertools.chain.from_iterable(tokens)))
+        vocab = nlp.Vocab(counter, bos_token=None, eos_token=None, reserved_tokens=reserved_tokens)
+        logger.info('built vocabulary of size {}'.format(len(vocab)))
+        return vocab
+
     def run(self, args):
         self.update_report(('config',), vars(args))
 
@@ -133,15 +146,18 @@ class NLIRunner(Runner):
         # id_, premise, hypothesis, label
         return example
 
+    def build_model(self, args, model_args, ctx, dataset=None, vocab=None):
+        raise NotImplementedError
+
     def run_train(self, args, ctx):
         train_dataset = self.preprocess_dataset(args.train_split, args.cheat, args.max_num_examples, ctx)
         dev_dataset = self.preprocess_dataset(args.test_split, args.cheat, args.max_num_examples, ctx)
 
-        model, vocab, tokenizer = build_model(args, args, ctx, train_dataset, tokenizer=self.tokenizer)
+        model, vocab = self.build_model(args, args, ctx, train_dataset)
         self.dump_vocab(vocab)
         self.vocab = vocab
 
-        self.train(args, model, train_dataset, dev_dataset, ctx, tokenizer, args.noising_by_epoch)
+        self.train(args, model, train_dataset, dev_dataset, ctx, args.noising_by_epoch)
 
     def dump_predictions(self, dataset, preds, ids):
         ids = ids.asnumpy().astype('int32')
@@ -154,15 +170,25 @@ class NLIRunner(Runner):
                 pred = self.task.get_labels()[preds_dict[id_]]
                 writer.writerow([id_, prem, hypo, label, pred, pred == label])
 
+    def load_model(self, args, model_args, path, ctx):
+        vocab = nlp.Vocab.from_json(
+            open(os.path.join(path, 'vocab.jsons')).read())
+        model, _ = self.build_model(args, model_args, ctx, vocab=vocab)
+        params_file = 'last.params' if args.use_last else 'valid_best.params'
+        logger.info('load model from {}'.format(os.path.join(
+            path, 'checkpoints', params_file)))
+        model.load_parameters(os.path.join(
+            path, 'checkpoints', params_file), ctx=ctx)
+        return model, vocab
+
     def run_test(self, args, ctx, dataset=None):
         model_args = read_args(args.init_from)
-        model, vocab, tokenizer = load_model(args, model_args, args.init_from, ctx, tokenizer=self.tokenizer)
-        self.vocab = vocab
+        model, self.vocab = self.load_model(args, model_args, args.init_from, ctx)
         if dataset:
             test_dataset = dataset
         else:
             test_dataset = self.preprocess_dataset(args.test_split, args.cheat, args.max_num_examples, ctx)
-        test_data = self.build_data_loader(test_dataset, args.eval_batch_size, model_args.max_len, tokenizer, test=True, ctx=ctx)
+        test_data = self.build_data_loader(test_dataset, args.eval_batch_size, model_args.max_len, test=True, ctx=ctx)
         metrics, preds, labels, scores, ids = self.evaluate(test_data, model, self.task.get_metric(), ctx)
         self.dump_predictions(test_dataset, preds, ids)
         logger.info(metric_dict_to_str(metrics))
@@ -176,17 +202,17 @@ class NLIRunner(Runner):
             logger.info('cheating rate: {}'.format(cheat_rate))
             return SNLICheatTransform(self.task.get_labels(), rate=cheat_rate)
 
-    def build_data_transformer(self, max_len, tokenizer, word_dropout, word_dropout_region):
+    def build_data_transformer(self, max_len, word_dropout, word_dropout_region):
         trans_list = []
         if word_dropout > 0:
             if word_dropout_region is None:
                 word_dropout_region = ('premise', 'hypothesis')
             trans_list.append(SNLIWordDropTransform(rate=word_dropout, region=word_dropout_region))
-        trans_list.append(self.build_model_transformer(max_len, tokenizer))
+        trans_list.append(self.build_model_transformer(max_len))
         return [x for x in trans_list if x]
 
-    def build_dataset(self, data, max_len, tokenizer, word_dropout=0, word_dropout_region=None, ctx=None):
-        trans_list = self.build_data_transformer(max_len, tokenizer, word_dropout, word_dropout_region)
+    def build_dataset(self, data, max_len, word_dropout=0, word_dropout_region=None, ctx=None):
+        trans_list = self.build_data_transformer(max_len, word_dropout, word_dropout_region)
         dataset = data
         logger.info('processing {} examples'.format(len(dataset)))
         start = time.time()
@@ -199,8 +225,8 @@ class NLIRunner(Runner):
         batchify_fn = trans.get_batcher()
         return dataset, data_lengths, batchify_fn
 
-    def build_data_loader(self, dataset, batch_size, max_len, tokenizer, test=False, word_dropout=0, word_dropout_region=None, ctx=None):
-        dataset, data_lengths, batchify_fn = self.build_dataset(dataset, max_len, tokenizer, word_dropout, word_dropout_region, ctx=ctx)
+    def build_data_loader(self, dataset, batch_size, max_len, test=False, word_dropout=0, word_dropout_region=None, ctx=None):
+        dataset, data_lengths, batchify_fn = self.build_dataset(dataset, max_len, word_dropout, word_dropout_region, ctx=ctx)
 
         batch_sampler = nlp.data.FixedBucketSampler(lengths=data_lengths,
                                                     batch_size=batch_size,
@@ -248,7 +274,7 @@ class NLIRunner(Runner):
         else:
             raise ValueError
 
-    def train(self, args, model, train_dataset, dev_dataset, ctx, tokenizer, data_noising_by_epoch):
+    def train(self, args, model, train_dataset, dev_dataset, ctx, data_noising_by_epoch):
         task = self.task
         loss_function = self.loss_function
         metric = task.get_metric()
@@ -293,8 +319,8 @@ class NLIRunner(Runner):
         checkpoints_dir = get_dir(os.path.join(self.outdir, 'checkpoints'))
 
         logger.info('building data loader')
-        train_data = self.build_data_loader(train_dataset, args.batch_size, args.max_len, tokenizer, test=False, word_dropout=args.word_dropout, word_dropout_region=args.word_dropout_region, ctx=ctx)
-        dev_data = self.build_data_loader(dev_dataset, args.batch_size, args.max_len, tokenizer, test=True, word_dropout=0, ctx=ctx)
+        train_data = self.build_data_loader(train_dataset, args.batch_size, args.max_len, test=False, word_dropout=args.word_dropout, word_dropout_region=args.word_dropout_region, ctx=ctx)
+        dev_data = self.build_data_loader(dev_dataset, args.batch_size, args.max_len, test=True, word_dropout=0, ctx=ctx)
 
         logger.info('start training')
         for epoch_id in range(args.epochs):
@@ -303,7 +329,7 @@ class NLIRunner(Runner):
             tic = time.time()
 
             if data_noising_by_epoch and epoch_id > 0:
-                train_data = self.build_data_loader(train_dataset, args.batch_size, args.max_len, tokenizer, test=False, word_dropout=args.word_dropout, word_dropout_region=args.word_dropout_region, ctx=ctx)
+                train_data = self.build_data_loader(train_dataset, args.batch_size, args.max_len, test=False, word_dropout=args.word_dropout, word_dropout_region=args.word_dropout_region, ctx=ctx)
 
             for batch_id, seqs in enumerate(train_data):
                 step_num += 1
@@ -370,9 +396,27 @@ class NLIRunner(Runner):
 
 
 class BERTNLIRunner(NLIRunner):
-    def build_model_transformer(self, max_len, tokenizer):
+    def build_model(self, args, model_args, ctx, dataset=None, vocab=None):
+        dataset = 'book_corpus_wiki_en_uncased'
+        bert, vocabulary = bert_12_768_12(
+            dataset_name=dataset,
+            pretrained=True,
+            ctx=ctx,
+            use_pooler=True,
+            use_decoder=False,
+            use_classifier=False)
+        if vocab:
+            vocabulary = vocab
+        task_name = args.task_name
+        num_classes = len(self.task.get_labels())
+        model = BERTClassifier(bert, num_classes=num_classes, dropout=model_args.dropout)
+        do_lower_case = 'uncased' in dataset
+        self.tokenizer = FullTokenizer(vocabulary, do_lower_case=do_lower_case)
+        return model, vocabulary
+
+    def build_model_transformer(self, max_len):
         trans = ClassificationTransform(
-            tokenizer, self.labels, max_len, pad=False, pair=True)
+            self.tokenizer, self.labels, max_len, pad=False, pair=True)
         return trans
 
     def prepare_data(self, data, ctx):
@@ -393,9 +437,9 @@ class HypothesisNLIRunner(BERTNLIRunner):
         super().__init__(task, runs_dir, run_id)
         self.feature = feature
 
-    def build_model_transformer(self, max_len, tokenizer):
+    def build_model_transformer(self, max_len):
         trans = NLIHypothesisTransform(
-            tokenizer, self.labels, max_len, pad=False)
+            self.tokenizer, self.labels, max_len, pad=False)
         return trans
 
 class CBOWNLIRunner(NLIRunner):
@@ -403,8 +447,16 @@ class CBOWNLIRunner(NLIRunner):
         super().__init__(task, runs_dir, run_id)
         self.tokenizer = BasicTokenizer(do_lower_case=True)
 
-    def build_model_transformer(self, max_len, tokenizer):
-        trans = CBOWTransform(self.labels, tokenizer, self.vocab, num_input_sentences=2)
+    def build_model(self, args, model_args, ctx, dataset=None, vocab=None):
+        if vocab is None:
+            vocab = self.build_vocab(dataset)
+        num_classes = len(self.task.get_labels())
+
+        model = NLICBOWClassifier(len(vocab), num_classes, model_args.embedding_size, model_args.hidden_size, model_args.num_layers, dropout=model_args.dropout)
+        return model, vocab
+
+    def build_model_transformer(self, max_len):
+        trans = CBOWTransform(self.labels, self.tokenizer, self.vocab, num_input_sentences=2)
         return trans
 
     def prepare_data(self, data, ctx):
@@ -432,8 +484,17 @@ class CBOWNLIRunner(NLIRunner):
 
 
 class HandcraftedNLIRunner(CBOWNLIRunner):
-    def build_model_transformer(self, max_len, tokenizer):
-        trans = NLIHandcraftedTransform(self.labels, tokenizer, self.vocab)
+    def build_model(self, args, model_args, ctx, dataset=None, vocab=None):
+        # empty overlap / non-overlap tokens
+        reserved_tokens = ['<empty>']
+        if vocab is None:
+            vocab = self.build_vocab(dataset, reserved_tokens=reserved_tokens)
+        num_classes = len(self.task.get_labels())
+        model = NLIHandcraftedClassifier(len(vocab), num_classes, model_args.embedding_size, model_args.hidden_size, model_args.num_layers, dropout=model_args.dropout)
+        return model, vocab
+
+    def build_model_transformer(self, max_len):
+        trans = NLIHandcraftedTransform(self.labels, self.tokenizer, self.vocab)
         return trans
 
     def prepare_data(self, data, ctx):
@@ -449,6 +510,15 @@ class HandcraftedNLIRunner(CBOWNLIRunner):
 
 
 class DANLIRunner(CBOWNLIRunner):
+    def build_model(self, args, model_args, ctx, dataset=None, vocab=None):
+        reserved_tokens = ['NULL']
+        if vocab is None:
+            vocab = self.build_vocab(dataset, reserved_tokens=reserved_tokens)
+        num_classes = len(self.task.get_labels())
+
+        model = DecomposableAttentionClassifier(len(vocab), num_classes, model_args.embedding_size, model_args.hidden_size, dropout=model_args.dropout)
+        return model, vocab
+
     def get_optimizer_params(self, optimizer, lr):
         if optimizer == 'bertadam':
             return {'learning_rate': lr, 'epsilon': 1e-6, 'wd': 0.01}
@@ -457,8 +527,8 @@ class DANLIRunner(CBOWNLIRunner):
         else:
             raise ValueError
 
-    def build_model_transformer(self, max_len, tokenizer):
-        trans = DATransform(self.labels, tokenizer, self.vocab)
+    def build_model_transformer(self, max_len):
+        trans = DATransform(self.labels, self.tokenizer, self.vocab)
         return trans
 
     def prepare_data(self, data, ctx):
@@ -479,6 +549,11 @@ def get_additive_runner(base):
             self.prev_runners = prev_runners
             self.prev_args = prev_args
             super().__init__(task, runs_dir, run_id)
+
+        def build_model(self, args, model_args, ctx, dataset=None, vocab=None):
+            model, vocabulary = super().build_model(args, model_args, ctx, dataset=dataset, vocab=vocab)
+            model = AdditiveClassifier(model, mode=args.additive_mode)
+            return model, vocabulary
 
         def run_prev_model(self, dataset, runner, args, ctx):
             logger.info('running previous model on preprocessed dataset')
@@ -515,8 +590,8 @@ def get_additive_runner(base):
             # id_, premise, hypothesis, label
             return example
 
-        def build_dataset(self, data, max_len, tokenizer, word_dropout=0, word_dropout_region=None, ctx=None):
-            trans_list = self.build_data_transformer(max_len, tokenizer, word_dropout, word_dropout_region)
+        def build_dataset(self, data, max_len, word_dropout=0, word_dropout_region=None, ctx=None):
+            trans_list = self.build_data_transformer(max_len, word_dropout, word_dropout_region)
             prev_scores = [x[0] for x in data]
             dataset = gluon.data.SimpleDataset([x[1] for x in data])
             logger.info('processing {} examples'.format(len(dataset)))

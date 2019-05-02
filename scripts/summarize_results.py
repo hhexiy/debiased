@@ -9,7 +9,6 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--runs-dir', nargs='+')
     parser.add_argument('--test', action='store_true', help='parse test log')
-    parser.add_argument('--delete', action='store_true', help='parse test log')
     args = parser.parse_args()
     return args
 
@@ -57,7 +56,7 @@ def parse_file(path, test=False):
         print(os.path.dirname(path))
         #import sys; sys.exit()
         #shutil.rmtree(os.path.dirname(path))
-        return None
+        return 'failed'
     report = {
             'train_data': train_data,
             'test_data': test_data,
@@ -81,7 +80,7 @@ def parse_file(path, test=False):
             }
     for c in constraints:
         if not c(report):
-            return None
+            return 'filtered'
     return report
 
 def main(args):
@@ -89,7 +88,7 @@ def main(args):
     for d in args.runs_dir:
         files.extend(glob.glob('{}/*/report.json'.format(d)))
     all_res = [parse_file(f, test=args.test) for f in files]
-    failed_paths = [f for r, f in zip(all_res, files) if not r]
+    failed_paths = [f for r, f in zip(all_res, files) if r == 'failed']
     if failed_paths:
         print('failed paths:')
         for f in failed_paths:
@@ -102,18 +101,7 @@ def main(args):
         else:
             print('ignore failed paths. continue')
 
-    all_res = [r for r in all_res if r]
-
-    if args.delete:
-        paths = [r['path'] for r in all_res]
-        for p in paths:
-            print(p)
-            try:
-                shutil.rmtree(os.path.dirname(p))
-            except IOError as e:
-                print(e)
-                continue
-        import sys; sys.exit()
+    all_res = [r for r in all_res if not r in ('failed', 'filtered')]
 
     columns = [
                ('train_data', 20, 's'),

@@ -9,6 +9,8 @@ class AdditiveClassifier(Block):
         super().__init__(prefix=None, params=None)
         self.classifier = classifier
         self.mode = mode
+        if hasattr(classifier, 'embedding'):
+            self.embedding = classifier.embedding
 
     def initialize(self, **kwargs):
         self.classifier.initialize(**kwargs)

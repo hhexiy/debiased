@@ -26,6 +26,8 @@ Implementation of the decomposable attention model with intra sentence attention
 from mxnet import gluon
 from mxnet.gluon import nn
 
+EPS = 1e-12
+
 
 class DecomposableAttentionClassifier(gluon.HybridBlock):
     """
@@ -52,7 +54,7 @@ class DecomposableAttentionClassifier(gluon.HybridBlock):
                 input_size = hidden_size
             self.model = DecomposableAttention(input_size, hidden_size, num_classes, dropout)
 
-    def hybrid_forward(self, F, sentence1, sentence2):
+    def hybrid_forward(self, F, sentence1, sentence2, valid_length1, valid_length2):
         """
         Predict the relation of two sentences.
 
@@ -74,7 +76,7 @@ class DecomposableAttentionClassifier(gluon.HybridBlock):
         if self.use_intra_attention:
             feature1 = F.concat(feature1, self.intra_attention(feature1), dim=-1)
             feature2 = F.concat(feature2, self.intra_attention(feature2), dim=-1)
-        pred = self.model(feature1, feature2)
+        pred = self.model(feature1, feature2, valid_length1, valid_length2)
         return pred
 
 class IntraSentenceAttention(gluon.HybridBlock):
@@ -141,7 +143,7 @@ class DecomposableAttention(gluon.HybridBlock):
         m.add(nn.Dense(out_units, in_units=out_units, activation='relu', flatten=flatten))
         return m
 
-    def hybrid_forward(self, F, a, b):
+    def hybrid_forward(self, F, a, b, len_a, len_b):
         """
         Forward of Decomposable Attention layer
         """
@@ -153,6 +155,10 @@ class DecomposableAttention(gluon.HybridBlock):
         # attention
         # e.shape = [B, L1, L2]
         e = F.batch_dot(tilde_a, tilde_b, transpose_b=True)
+        # masking
+        e_mask_a = F.SequenceMask(e, sequence_length=len_a, use_sequence_length=True, axis=1, value=EPS)
+        e_mask_a_b = F.SequenceMask(e_mask_a.transpose([0, 2, 1]), sequence_length=len_b, use_sequence_length=True, axis=1, value=EPS).transpose([0, 2, 1])
+        e = e_mask_a_b
         # beta: b align to a, [B, L1, H]
         beta = F.batch_dot(e.softmax(), tilde_b)
         # alpha: a align to b, [B, L2, H]

@@ -534,8 +534,12 @@ class DANLIRunner(CBOWNLIRunner):
     def prepare_data(self, data, ctx):
         """Batched data to model inputs.
         """
-        id_, s1, s2, label = data
-        inputs = (s1.as_in_context(ctx), s2.as_in_context(ctx))
+        id_, input_ids, valid_len, label = data
+        inputs = (input_ids[0].as_in_context(ctx),
+                  input_ids[1].as_in_context(ctx),
+                  valid_len[0].astype('float32').as_in_context(ctx),
+                  valid_len[1].astype('float32').as_in_context(ctx),
+                  )
         label = label.as_in_context(ctx)
         return id_, inputs, label
 

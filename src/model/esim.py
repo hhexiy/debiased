@@ -52,7 +52,9 @@ class ESIMClassifier(nn.HybridBlock):
                  dropout=0., **kwargs):
         super().__init__(**kwargs)
         with self.name_scope():
-            self.embedding = nn.Embedding(vocab_size, word_embed_size)
+            self.embedding = nn.HybridSequential()
+            self.embedding.add(nn.Embedding(vocab_size, word_embed_size))
+            self.embedding.add(nn.Dropout(dropout, axes=1))
             self.lstm_encoder1 = rnn.LSTM(hidden_size, input_size=word_embed_size, bidirectional=True, layout='NTC')
             self.ff_proj = nn.Dense(hidden_size, in_units=hidden_size * 2 * 4, flatten=False, activation='relu')
             self.lstm_encoder2 = rnn.LSTM(hidden_size, input_size=hidden_size, bidirectional=True, layout='NTC')

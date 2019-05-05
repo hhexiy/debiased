@@ -27,6 +27,7 @@ def parse_file(path, test=False):
         train_data = '{}-{}'.format(model_config['task_name'], model_config['test_split'])
         model_path = config['init_from'].split('/')
         model_path = '/'.join(model_path[:-1] + [model_path[-1][:5]])
+        model = model_config['model_type']
 
         model_cheat = float(model_config['cheat'])
         test_cheat = float(config['cheat'])
@@ -36,11 +37,15 @@ def parse_file(path, test=False):
         additive = len(model_config['additive']) if model_config['additive'] else 0
         last = int(config['use_last'])
         metrics = res['test'][test_split]
+        if test_data.startswith('MNLI-hans'):
+            metric_name = 'mapped-accuracy'
+        else:
+            metric_name = 'accuracy'
         if additive == 0:
-            acc = metrics['accuracy']
+            acc = metrics[metric_name]
             additive = '0'
         else:
-            acc = metrics['last_accuracy']
+            acc = metrics['last_{}'.format(metric_name)]
             prev_models = []
             for prev in model_config['additive']:
                 prev_config = get_model_config(prev)
@@ -66,8 +71,10 @@ def parse_file(path, test=False):
             'sup': superficial,
             'add': additive,
             'wdrop': wdrop,
+            'model': model,
             'acc': acc,
             'path': model_path,
+            #'eval-path': path,
            }
     constraints = {
             #lambda r: r['mch'] == -1,
@@ -75,8 +82,8 @@ def parse_file(path, test=False):
             #lambda r: r['sup'] == 0,
             #lambda r: r['add'] == '0',
             #lambda r: r['wdrop'] == 0,
-            #lambda r: r['last'] == 0,
-            lambda r: not r['test_data'].endswith('mismatched'),
+            #lambda r: r['test_data'].startswith('MNLI-hans'),
+            lambda r: r['model'] == 'da',
             }
     for c in constraints:
         if not c(report):
@@ -87,8 +94,8 @@ def main(args):
     files = []
     for d in args.runs_dir:
         files.extend(glob.glob('{}/*/report.json'.format(d)))
-    all_res = [parse_file(f, test=args.test) for f in files]
-    failed_paths = [f for r, f in zip(all_res, files) if r == 'failed']
+    all_res = [(parse_file(f, test=args.test), f) for f in files]
+    failed_paths = [f for r, f in all_res if r == 'failed']
     if failed_paths:
         print('failed paths:')
         for f in failed_paths:
@@ -101,7 +108,7 @@ def main(args):
         else:
             print('ignore failed paths. continue')
 
-    all_res = [r for r in all_res if not r in ('failed', 'filtered')]
+    all_res = [(r, f) for r, f in all_res if not r in ('failed', 'filtered')]
 
     columns = [
                ('train_data', 20, 's'),
@@ -114,23 +121,33 @@ def main(args):
                ('wdrop', 10, '.1f'),
                ('acc', 10, '.3f'),
                ('path', 10, 's'),
+               #('eval-path', 10, 's'),
               ]
     if len(all_res) == 0:
         print('no results found')
         return
-    if 'last_acc' in all_res[0]:
-        columns.append(('last_val_acc', 10, '.2f'))
-    if 'prev_acc' in all_res[0]:
-        columns.append(('prev_val_acc', 10, '.2f'))
+    #if 'last_acc' in all_res[0]:
+    #    columns.append(('last_val_acc', 10, '.2f'))
+    #if 'prev_acc' in all_res[0]:
+    #    columns.append(('prev_val_acc', 10, '.2f'))
     header = ''.join(['{{:<{w}s}}'.format(w=width)
                       for _, width, _ in columns])
     header = header.format(*[c[0] for c in columns])
     row_format = ''.join(['{{{c}:<{w}{f}}}'.format(c=name, w=width, f=form)
                           for name, width, form in columns])
-    all_res = sorted(all_res, key=lambda x: [x[c[0]] for c in columns])
+    all_res = sorted(all_res, key=lambda x: [x[0][c[0]] for c in columns])
+
+    #duplicated_paths = []
+    #for i, (r, f) in enumerate(all_res):
+    #    if i > 0 and r == all_res[i-1][0]:
+    #        duplicated_paths.append(f)
+    #for f in duplicated_paths:
+    #    print(f)
+    #    shutil.rmtree(os.path.dirname(f))
+    #import sys; sys.exit()
 
     print(header)
-    for res in all_res:
+    for res, f in all_res:
         print(row_format.format(**res))
 
 if __name__ == '__main__':

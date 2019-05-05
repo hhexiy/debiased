@@ -506,7 +506,7 @@ class MNLIHansDataset(MNLIDataset):
         A_IDX, B_IDX, LABEL_IDX = 5, 6, 0
 
         fields = [A_IDX, B_IDX, LABEL_IDX]
-        super().__init__(
+        super(MNLIDataset, self).__init__(
             path, num_discard_samples=1, fields=fields, label_field=2, max_num_examples=max_num_examples)
 
     @classmethod
@@ -541,7 +541,7 @@ class MNLIStressTestDataset(MNLIDataset):
             A_IDX, B_IDX, LABEL_IDX = 5, 6, 0
 
         fields = [A_IDX, B_IDX, LABEL_IDX]
-        super().__init__(
+        super(MNLIDataset, self).__init__(
             path, num_discard_samples=1, fields=fields, label_field=2, max_num_examples=max_num_examples)
 
 
@@ -797,6 +797,23 @@ class DATransform(CBOWTransform):
         label_id = self._label_map[label]
         label_id = np.array([label_id], dtype='int32')
         input_ids = [self._vocab(['NULL'] + self._tokenizer.tokenize(s)) for s in inputs]
+        valid_lengths = [len(s) for s in input_ids]
+        return id_, input_ids, valid_lengths, label_id
+
+
+class ESIMTransform(CBOWTransform):
+    def __init__(self, labels, tokenizer, vocab, max_len=60, num_input_sentences=2):
+        super().__init__(labels, tokenizer, vocab, num_input_sentences)
+        self.max_seq_length = max_len
+
+    def __call__(self, line):
+        id_ = line[0]
+        inputs = line[1:-1]  # list of text strings
+        label = line[-1]
+        label = convert_to_unicode(label)
+        label_id = self._label_map[label]
+        label_id = np.array([label_id], dtype='int32')
+        input_ids = [self._vocab(self._tokenizer.tokenize(s)[:self.max_seq_length]) for s in inputs]
         valid_lengths = [len(s) for s in input_ids]
         return id_, input_ids, valid_lengths, label_id
 

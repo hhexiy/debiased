@@ -72,6 +72,7 @@ def get_runner(args, model_args, task, output_dir=None):
             'cbow': CBOWNLIRunner,
             'bert': BERTNLIRunner,
             'da': DANLIRunner,
+            'esim': ESIMNLIRunner,
             }
     if not output_dir:
         output_dir = args.output_dir

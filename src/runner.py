@@ -23,10 +23,11 @@ from .model.bert import BERTClassifier
 from .model.additive import AdditiveClassifier
 from .model.cbow import NLICBOWClassifier, NLIHandcraftedClassifier
 from .model.decomposable_attention import DecomposableAttentionClassifier
+from .model.esim import ESIMClassifier
 from .dataset import MRPCDataset, QQPDataset, RTEDataset, \
     STSBDataset, ClassificationTransform, RegressionTransform, \
     NLIHypothesisTransform, SNLICheatTransform, SNLIWordDropTransform, \
-    CBOWTransform, NLIHandcraftedTransform, DATransform, \
+    CBOWTransform, NLIHandcraftedTransform, DATransform, ESIMTransform, \
     QNLIDataset, COLADataset, SNLIDataset, MNLIDataset, WNLIDataset, SSTDataset
 from .utils import *
 from .task import tasks
@@ -285,7 +286,6 @@ class NLIRunner(Runner):
         model.hybridize(static_alloc=True)
         loss_function.hybridize(static_alloc=True)
 
-        # TODO: refactor this as get_trainer
         lr = args.lr
         optimizer_params = self.get_optimizer_params(args.optimizer, args.lr)
         try:
@@ -524,6 +524,8 @@ class DANLIRunner(CBOWNLIRunner):
             return {'learning_rate': lr, 'epsilon': 1e-6, 'wd': 0.01}
         elif optimizer == 'adagrad':
             return {'learning_rate': lr, 'wd': 1e-5, 'clip_gradient': 5}
+        elif optimizer == 'adam':
+            return {'learning_rate': lr}
         else:
             raise ValueError
 
@@ -539,6 +541,33 @@ class DANLIRunner(CBOWNLIRunner):
                   input_ids[1].as_in_context(ctx),
                   valid_len[0].astype('float32').as_in_context(ctx),
                   valid_len[1].astype('float32').as_in_context(ctx),
+                  )
+        label = label.as_in_context(ctx)
+        return id_, inputs, label
+
+
+class ESIMNLIRunner(DANLIRunner):
+    def build_model(self, args, model_args, ctx, dataset=None, vocab=None):
+        reserved_tokens = None
+        if vocab is None:
+            vocab = self.build_vocab(dataset, reserved_tokens=reserved_tokens)
+        num_classes = self.task.num_classes()
+
+        model = ESIMClassifier(len(vocab), num_classes, model_args.embedding_size, model_args.hidden_size, model_args.hidden_size, dropout=model_args.dropout)
+        return model, vocab
+
+    def build_model_transformer(self, max_len):
+        trans = ESIMTransform(self.labels, self.tokenizer, self.vocab, max_len)
+        return trans
+
+    def prepare_data(self, data, ctx):
+        """Batched data to model inputs.
+        """
+        id_, input_ids, valid_len, label = data
+        inputs = (input_ids[0].as_in_context(ctx),
+                  input_ids[1].as_in_context(ctx),
+                  #valid_len[0].astype('float32').as_in_context(ctx),
+                  #valid_len[1].astype('float32').as_in_context(ctx),
                   )
         label = label.as_in_context(ctx)
         return id_, inputs, label

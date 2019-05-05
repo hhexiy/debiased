@@ -44,8 +44,8 @@ class DecomposableAttentionClassifier(gluon.HybridBlock):
         with self.name_scope():
             self.dropout_layer = nn.Dropout(dropout)
             self.embedding = nn.Embedding(vocab_size, word_embed_size)
-            self.lin_proj = nn.Dense(hidden_size, in_units=word_embed_size,
-                                     flatten=False, use_bias=False)
+            #self.lin_proj = nn.Dense(hidden_size, in_units=word_embed_size,
+            #                         flatten=False, use_bias=False)
             if self.use_intra_attention:
                 self.intra_attention = IntraSentenceAttention(hidden_size, hidden_size, dropout)
                 input_size = hidden_size * 2
@@ -71,8 +71,10 @@ class DecomposableAttentionClassifier(gluon.HybridBlock):
             Shape (batch_size, num_classes). num_classes == 3.
 
         """
-        feature1 = self.lin_proj(self.embedding(sentence1))
-        feature2 = self.lin_proj(self.embedding(sentence2))
+        #feature1 = self.lin_proj(self.embedding(sentence1))
+        #feature2 = self.lin_proj(self.embedding(sentence2))
+        feature1 = self.embedding(sentence1)
+        feature2 = self.embedding(sentence2)
         if self.use_intra_attention:
             feature1 = F.concat(feature1, self.intra_attention(feature1), dim=-1)
             feature2 = F.concat(feature2, self.intra_attention(feature2), dim=-1)
@@ -125,7 +127,7 @@ class DecomposableAttention(gluon.HybridBlock):
         with self.name_scope():
             self.dropout_layer = nn.Dropout(dropout)
             # attention function
-            self.f = self._ff_layer(in_units=inp_size, out_units=hidden_size, flatten=False)
+            #self.f = self._ff_layer(in_units=inp_size, out_units=hidden_size, flatten=False)
             # compare function
             self.g = self._ff_layer(in_units=hidden_size * 2, out_units=hidden_size, flatten=False)
             # predictor
@@ -150,15 +152,17 @@ class DecomposableAttention(gluon.HybridBlock):
         # a.shape = [B, L1, H]
         # b.shape = [B, L2, H]
         # extract features
-        tilde_a = self.f(a)  # shape = [B, L1, H]
-        tilde_b = self.f(b)  # shape = [B, L2, H]
+        #tilde_a = self.f(a)  # shape = [B, L1, H]
+        #tilde_b = self.f(b)  # shape = [B, L2, H]
+        tilde_a = a  # shape = [B, L1, H]
+        tilde_b = b  # shape = [B, L2, H]
         # attention
         # e.shape = [B, L1, L2]
         e = F.batch_dot(tilde_a, tilde_b, transpose_b=True)
-        # masking
-        e_mask_a = F.SequenceMask(e, sequence_length=len_a, use_sequence_length=True, axis=1, value=EPS)
-        e_mask_a_b = F.SequenceMask(e_mask_a.transpose([0, 2, 1]), sequence_length=len_b, use_sequence_length=True, axis=1, value=EPS).transpose([0, 2, 1])
-        e = e_mask_a_b
+        ## masking
+        #e_mask_a = F.SequenceMask(e, sequence_length=len_a, use_sequence_length=True, axis=1, value=EPS)
+        #e_mask_a_b = F.SequenceMask(e_mask_a.transpose([0, 2, 1]), sequence_length=len_b, use_sequence_length=True, axis=1, value=EPS).transpose([0, 2, 1])
+        #e = e_mask_a_b
         # beta: b align to a, [B, L1, H]
         beta = F.batch_dot(e.softmax(), tilde_b)
         # alpha: a align to b, [B, L2, H]

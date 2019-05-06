@@ -293,7 +293,8 @@ class NLIRunner(Runner):
                 model.collect_params(),
                 args.optimizer,
                 optimizer_params,
-                update_on_kvstore=False)
+                update_on_kvstore=False,
+                kvstore='nccl')
         except ValueError as e:
             print(e)
             warnings.warn(
@@ -303,7 +304,8 @@ class NLIRunner(Runner):
                 model.collect_params(),
                 'Adam',
                 optimizer_params,
-                update_on_kvstore=False)
+                update_on_kvstore=False,
+                kvstore='nccl')
 
         num_train_steps = int(num_train_examples / args.batch_size * args.epochs)
         num_warmup_steps = int(num_train_steps * args.warmup_ratio)

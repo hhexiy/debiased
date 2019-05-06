@@ -52,9 +52,8 @@ class ESIMClassifier(nn.HybridBlock):
                  dropout=0., **kwargs):
         super().__init__(**kwargs)
         with self.name_scope():
-            self.embedding = nn.HybridSequential()
-            self.embedding.add(nn.Embedding(vocab_size, word_embed_size))
-            self.embedding.add(nn.Dropout(dropout, axes=1))
+            self.embedding = nn.Embedding(vocab_size, word_embed_size)
+            self.embedding_dropout = nn.Dropout(dropout, axes=1)
             self.lstm_encoder1 = rnn.LSTM(hidden_size, input_size=word_embed_size, bidirectional=True, layout='NTC')
             self.ff_proj = nn.Dense(hidden_size, in_units=hidden_size * 2 * 4, flatten=False, activation='relu')
             self.lstm_encoder2 = rnn.LSTM(hidden_size, input_size=hidden_size, bidirectional=True, layout='NTC')
@@ -95,8 +94,8 @@ class ESIMClassifier(nn.HybridBlock):
 
     def hybrid_forward(self, F, x1, x2): #, valid_len1, valid_len2):  # pylint: disable=arguments-differ
         # x1_embed x2_embed shape: (batch, seq_len, word_embed_size)
-        x1_embed = self.embedding(x1)
-        x2_embed = self.embedding(x2)
+        x1_embed = self.embedding_dropout(self.embedding(x1))
+        x2_embed = self.embedding_dropout(self.embedding(x2))
 
         x1_lstm_encode = self.lstm_encoder1(x1_embed)
         x2_lstm_encode = self.lstm_encoder1(x2_embed)

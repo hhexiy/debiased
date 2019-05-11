@@ -3,12 +3,12 @@ import glob
 import json
 import shutil
 import os
-import traceback
+import json
 
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--runs-dir', nargs='+')
-    parser.add_argument('--test', action='store_true', help='parse test log')
+    parser.add_argument('--output-json')
     args = parser.parse_args()
     return args
 
@@ -16,7 +16,7 @@ def get_model_config(model_path):
     res = json.load(open('{}/report.json'.format(model_path)))['config']
     return res
 
-def parse_file(path, test=False):
+def parse_file(path):
     #print('parsing {}'.format(path))
     try:
         res = json.load(open(path))
@@ -61,8 +61,12 @@ def parse_file(path, test=False):
         print(os.path.dirname(path))
         #import sys; sys.exit()
         #shutil.rmtree(os.path.dirname(path))
-        return 'failed'
+        return {
+                'status': 'failed',
+                'eval_path': path,
+               }
     report = {
+            'status': 'success',
             'train_data': train_data,
             'test_data': test_data,
             'last': last,
@@ -73,29 +77,32 @@ def parse_file(path, test=False):
             'wdrop': wdrop,
             'model': model,
             'acc': acc,
-            'path': model_path,
-            #'eval-path': path,
+            'model_path': model_path,
+            'eval_path': path,
            }
     constraints = {
-            #lambda r: r['mch'] == -1,
-            #lambda r: r['tch'] == -1,
+            #lambda r: r['mch'] != -1,
+            #lambda r: r['tch'] == 0,
             #lambda r: r['sup'] == 0,
             #lambda r: r['add'] == '0',
-            #lambda r: r['wdrop'] == 0,
-            #lambda r: r['test_data'].startswith('MNLI-hans'),
-            lambda r: r['model'] == 'da',
+            #lambda r: r['wdrop'] in (0, 0.1),
+            #lambda r: r['test_data'] == 'SNLI-test',
+            #lambda r: r['model'] == 'da',
             }
     for c in constraints:
         if not c(report):
-            return 'filtered'
+            return {
+                    'status': 'filtered',
+                    'eval_path': path,
+                   }
     return report
 
 def main(args):
     files = []
     for d in args.runs_dir:
         files.extend(glob.glob('{}/*/report.json'.format(d)))
-    all_res = [(parse_file(f, test=args.test), f) for f in files]
-    failed_paths = [f for r, f in all_res if r == 'failed']
+    all_res = [parse_file(f) for f in files]
+    failed_paths = [r['eval_path'] for r in all_res if r['status'] == 'failed']
     if failed_paths:
         print('failed paths:')
         for f in failed_paths:
@@ -108,7 +115,7 @@ def main(args):
         else:
             print('ignore failed paths. continue')
 
-    all_res = [(r, f) for r, f in all_res if not r in ('failed', 'filtered')]
+    all_res = [r for r in all_res if r['status'] == 'success']
 
     columns = [
                ('train_data', 20, 's'),
@@ -120,7 +127,7 @@ def main(args):
                ('add', 10, 's'),
                ('wdrop', 10, '.1f'),
                ('acc', 10, '.3f'),
-               ('path', 10, 's'),
+               ('model_path', 10, 's'),
                #('eval-path', 10, 's'),
               ]
     if len(all_res) == 0:
@@ -135,7 +142,7 @@ def main(args):
     header = header.format(*[c[0] for c in columns])
     row_format = ''.join(['{{{c}:<{w}{f}}}'.format(c=name, w=width, f=form)
                           for name, width, form in columns])
-    all_res = sorted(all_res, key=lambda x: [x[0][c[0]] for c in columns])
+    all_res = sorted(all_res, key=lambda x: [x[c[0]] for c in columns])
 
     #duplicated_paths = []
     #for i, (r, f) in enumerate(all_res):
@@ -147,8 +154,12 @@ def main(args):
     #import sys; sys.exit()
 
     print(header)
-    for res, f in all_res:
+    for res in all_res:
         print(row_format.format(**res))
+
+    if args.output_json:
+        with open(args.output_json, 'w') as fout:
+            json.dump(all_res, fout, indent=2)
 
 if __name__ == '__main__':
     args = parse_args()

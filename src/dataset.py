@@ -493,6 +493,59 @@ class SNLIDataset(GLUEDataset):
         return Accuracy()
 
 
+class SNLISwapDataset(SNLIDataset):
+    def __init__(self,
+                 segment='train',
+                 root=os.path.join(os.getenv('GLUE_DIR', 'glue_data'),
+                                   'SNLI-swap'),
+                 max_num_examples=-1):  #pylint: disable=c0330
+        self._supported_segments = ['test']
+        assert segment in self._supported_segments, 'Unsupported segment: %s' % segment
+        # NOTE: number of examples in .tsv files is different than original/*.txt
+        path = os.path.join(root, '%s.tsv' % segment)
+        A_IDX, B_IDX, LABEL_IDX = 5, 6, 0
+        fields = [A_IDX, B_IDX, LABEL_IDX]
+        super(SNLIDataset, self).__init__(
+            path, num_discard_samples=1, fields=fields, label_field=2, max_num_examples=max_num_examples)
+
+    @classmethod
+    def get_labels(cls):
+        """Get classification label ids of the dataset."""
+        labels = super().get_labels()
+        labels.append('non-contradiction')
+        return labels
+
+    @staticmethod
+    def get_metric():
+        """Get metrics Accuracy"""
+        # 0, 1, 2, 3 = ['neutral', 'entailment', 'contradiction', 'non-contradiction']
+        return MappedAccuracy(label_map={0: 3, 1: 3})
+
+
+class MNLISwapDataset(MNLIDataset):
+    def __init__(self,
+                 segment='train',
+                 root=os.path.join(os.getenv('GLUE_DIR', 'glue_data'),
+                                   'MNLI-swap'),
+                 max_num_examples=-1):  #pylint: disable=c0330
+        super().__init__(segment, root, max_num_examples)
+        self._supported_segments = ['test_matched', 'test_mismatched']
+        assert segment in self._supported_segments, 'Unsupported segment: %s' % segment
+
+    @classmethod
+    def get_labels(cls):
+        """Get classification label ids of the dataset."""
+        labels = super().get_labels()
+        labels.append('non-contradiction')
+        return labels
+
+    @staticmethod
+    def get_metric():
+        """Get metrics Accuracy"""
+        # 0, 1, 2, 3 = ['neutral', 'entailment', 'contradiction', 'non-contradiction']
+        return MappedAccuracy(label_map={0: 3, 1: 3})
+
+
 class MNLIHansDataset(MNLIDataset):
     def __init__(self,
                  segment='lexical_overlap',

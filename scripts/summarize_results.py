@@ -4,6 +4,7 @@ import json
 import shutil
 import os
 import json
+import traceback
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -52,7 +53,7 @@ def parse_file(path):
                 if prev_config['superficial'] == 'handcrafted':
                     prev_models.append('hand')
                 elif prev_config['superficial']:
-                    prev_models.append('sup')
+                    prev_models.append('hypo')
                 else:
                     prev_models.append('cbow')
             additive = ','.join(prev_models)
@@ -75,7 +76,7 @@ def parse_file(path):
             'sup': superficial,
             'add': additive,
             'wdrop': wdrop,
-            'model': model,
+            'model': model.upper(),
             'acc': acc,
             'model_path': model_path,
             'eval_path': path,
@@ -84,10 +85,10 @@ def parse_file(path):
             #lambda r: r['mch'] != -1,
             #lambda r: r['tch'] == 0,
             #lambda r: r['sup'] == 0,
-            #lambda r: r['add'] == '0',
-            #lambda r: r['wdrop'] in (0, 0.1),
-            #lambda r: r['test_data'] == 'SNLI-test',
-            #lambda r: r['model'] == 'da',
+            lambda r: r['add'] in ('0', 'hypo'),
+            lambda r: r['wdrop'] in (0, 0.1),
+            lambda r: r['test_data'] == 'SNLI-test',
+            #lambda r: r['model'] == 'BERT',
             }
     for c in constraints:
         if not c(report):
@@ -116,6 +117,13 @@ def main(args):
             print('ignore failed paths. continue')
 
     all_res = [r for r in all_res if r['status'] == 'success']
+    #for r in all_res:
+    #    print(r['eval_path'])
+    #ans = input('remove failed paths? [Y/N]')
+    #if ans == 'Y':
+    #    for r in all_res:
+    #        shutil.rmtree(os.path.dirname(r['eval_path']))
+    #import sys; sys.exit()
 
     columns = [
                ('train_data', 20, 's'),

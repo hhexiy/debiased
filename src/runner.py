@@ -21,6 +21,7 @@ from gluonnlp.model import bert_12_768_12
 
 from .model.bert import BERTClassifier
 from .model.additive import AdditiveClassifier
+from .model.hex import ProjectClassifier
 from .model.cbow import NLICBOWClassifier, NLIHandcraftedClassifier
 from .model.decomposable_attention import DecomposableAttentionClassifier
 from .model.esim import ESIMClassifier
@@ -575,15 +576,15 @@ class ESIMNLIRunner(DANLIRunner):
         return id_, inputs, label
 
 
-def get_additive_runner(base):
+def get_additive_runner(base, project=False):
     class AdditiveNLIRunner(base):
         """Additive model of a superficial classifier and a normal classifier.
         """
         def __init__(self, task, runs_dir, prev_runners, prev_args, run_id=None):
+            super().__init__(task, runs_dir, run_id)
             # Runner for the previous model
             self.prev_runners = prev_runners
             self.prev_args = prev_args
-            super().__init__(task, runs_dir, run_id)
 
         def build_model(self, args, model_args, ctx, dataset=None, vocab=None):
             model, vocabulary = super().build_model(args, model_args, ctx, dataset=dataset, vocab=vocab)
@@ -668,4 +669,15 @@ def get_additive_runner(base):
             _, preds, labels, scores, ids = results[original_mode]
             return metric_dict, preds, labels, scores, ids
 
+    class ProjectNLIRunner(AdditiveNLIRunner):
+        def build_model(self, args, model_args, ctx, dataset=None, vocab=None):
+            model, vocabulary = super(AdditiveNLIRunner, self).build_model(args, model_args, ctx, dataset=dataset, vocab=vocab)
+            model = ProjectClassifier(model)
+            return model, vocabulary
+
+        def evaluate(self, data_loader, model, metric, ctx):
+            return super(AdditiveNLIRunner, self).evaluate(data_loader, model, metric, ctx)
+
+    if project:
+        return ProjectNLIRunner
     return AdditiveNLIRunner

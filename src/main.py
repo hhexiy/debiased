@@ -76,7 +76,8 @@ def get_runner(args, model_args, task, output_dir=None):
             }
     if not output_dir:
         output_dir = args.output_dir
-    if model_args.superficial == 'hypothesis':
+    # Be compatible with previously trained models
+    if model_args.superficial == True or model_args.superficial == 'hypothesis':
         runner = HypothesisNLIRunner(task, output_dir, args.exp_id)
     elif model_args.superficial == 'handcrafted':
         runner = HandcraftedNLIRunner(task, output_dir, args.exp_id)
@@ -91,7 +92,11 @@ def get_runner(args, model_args, task, output_dir=None):
             _prev_runner = get_runner(args, _prev_args, task, output_dir='/tmp')
             prev_runners.append(_prev_runner)
             prev_args.append(_prev_args)
-        runner = get_additive_runner(core_runner[model_args.model_type])(task, output_dir, prev_runners, prev_args, args.exp_id)
+        if not hasattr(model_args.project, 'project'):
+            project = False
+        else:
+            project = model_args.project
+        runner = get_additive_runner(core_runner[model_args.model_type], project=project)(task, output_dir, prev_runners, prev_args, args.exp_id)
     else:
         runner = core_runner[model_args.model_type](task, output_dir, args.exp_id)
     return runner

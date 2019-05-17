@@ -5,11 +5,14 @@ import shutil
 import os
 import json
 import traceback
+import csv
+from sklearn.metrics import classification_report, confusion_matrix
 
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--runs-dir', nargs='+')
     parser.add_argument('--output-json')
+    parser.add_argument('--error-analysis', action='store_true')
     args = parser.parse_args()
     return args
 
@@ -17,7 +20,18 @@ def get_model_config(model_path):
     res = json.load(open('{}/report.json'.format(model_path)))['config']
     return res
 
-def parse_file(path):
+def analyze(path):
+    pred_file = os.path.join('{}/predictions.tsv'.format(os.path.dirname(path)))
+    with open(pred_file) as fin:
+        reader = csv.DictReader(fin, delimiter='\t')
+        preds, labels = [], []
+        for row in reader:
+            preds.append('non-entailment' if row['pred'] != 'entailment' else 'entailment')
+            labels.append(row['label'])
+    report = classification_report(labels, preds, output_dict=True)
+    return report
+
+def parse_file(path, error_analysis=False):
     #print('parsing {}'.format(path))
     try:
         res = json.load(open(path))
@@ -32,6 +46,7 @@ def parse_file(path):
 
         model_cheat = float(model_config['cheat'])
         test_cheat = float(config['cheat'])
+        rm_cheat = float(model_config.get('remove_cheat', False))
         wdrop = float(model_config.get('word_dropout', 0))
         model = model_config.get('model_type', 'bert') or 'bert'
         superficial = model_config['superficial'] if model_config['superficial'] else '-1'
@@ -73,6 +88,7 @@ def parse_file(path):
             'last': last,
             'mch': model_cheat,
             'tch': test_cheat,
+            'rm_ch': rm_cheat,
             'sup': superficial,
             'add': additive,
             'wdrop': wdrop,
@@ -82,11 +98,12 @@ def parse_file(path):
             'eval_path': path,
            }
     constraints = {
-            #lambda r: r['mch'] != -1,
-            #lambda r: r['tch'] == 0,
+            lambda r: r['mch'] != -1,
+            lambda r: r['tch'] == 0,
             #lambda r: r['sup'] == 0,
-            lambda r: r['add'] in ('0', 'hypo'),
-            lambda r: r['wdrop'] in (0, 0.1),
+            #lambda r: r['add'] in ('0', 'hypo'),
+            lambda r: r['wdrop'] in (0,),
+            #lambda r: r['test_data'].startswith('MNLI-hans'),
             lambda r: r['test_data'] == 'SNLI-test',
             #lambda r: r['model'] == 'BERT',
             }
@@ -96,13 +113,28 @@ def parse_file(path):
                     'status': 'filtered',
                     'eval_path': path,
                    }
+    if error_analysis:
+        try:
+            acc_report = analyze(path)
+            report.update({
+                'ent': acc_report['entailment']['f1-score'],
+                'n-ent': acc_report['non-entailment']['f1-score'],
+                'acc_report': acc_report,
+                })
+        except Exception as e:
+            traceback.print_exc()
+            print(os.path.dirname(path))
+            return {
+                    'status': 'failed',
+                    'eval_path': path,
+                   }
     return report
 
 def main(args):
     files = []
     for d in args.runs_dir:
         files.extend(glob.glob('{}/*/report.json'.format(d)))
-    all_res = [parse_file(f) for f in files]
+    all_res = [parse_file(f, args.error_analysis) for f in files]
     failed_paths = [r['eval_path'] for r in all_res if r['status'] == 'failed']
     if failed_paths:
         print('failed paths:')
@@ -130,11 +162,13 @@ def main(args):
                ('test_data', 40, 's'),
                ('tch', 6, '.1f'),
                ('mch', 6, '.1f'),
-               ('last', 5, 'd'),
+               ('rm_ch', 6, '.1f'),
                ('sup', 5, 's'),
                ('add', 10, 's'),
                ('wdrop', 10, '.1f'),
                ('acc', 10, '.3f'),
+               #('ent', 10, '.3f'),
+               #('n-ent', 10, '.3f'),
                ('model_path', 10, 's'),
                #('eval-path', 10, 's'),
               ]

@@ -968,15 +968,18 @@ class ClassificationTransform(object):
 
 
 class SNLICheatTransform(object):
-    def __init__(self, labels, rate=1.):
+    def __init__(self, labels, rate=1., remove=False):
         self.rate = rate
         self.labels = labels
         self.rng = random.Random(42)
+        self.remove = remove
 
     def __call__(self, line):
         id_, premise, hypothesis, label = line[0], line[1], line[2], line[3]
         if self.rng.random() < self.rate:
             label = label
+            if self.remove:
+                return None
         else:
             label = self.rng.choice(self.labels)
         line[2] = '{} and {}'.format(label, hypothesis)

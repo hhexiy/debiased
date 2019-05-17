@@ -132,14 +132,17 @@ class NLIRunner(Runner):
         else:
             self.run_test(args, ctx)
 
-    def preprocess_dataset(self, split, cheat_rate, max_num_examples, ctx=None):
+    def preprocess_dataset(self, split, cheat_rate, remove_cheat, max_num_examples, ctx=None):
         dataset = self.task(segment=split, max_num_examples=max_num_examples)
         logger.info('preprocess {} {} data'.format(len(dataset), split))
         if cheat_rate >= 0:
-            trans = self.build_cheat_transformer(cheat_rate)
+            trans = self.build_cheat_transformer(cheat_rate, remove_cheat)
             # Make sure we have the same data
             trans.reset()
             dataset = dataset.transform(trans, lazy=False)
+            if remove_cheat:
+                dataset = gluon.data.SimpleDataset([ex for ex in dataset if ex is not None])
+                logger.info('after remove cheated examples: {}'.format(len(dataset)))
         return dataset
 
     def get_input(self, example):
@@ -152,8 +155,8 @@ class NLIRunner(Runner):
         raise NotImplementedError
 
     def run_train(self, args, ctx):
-        train_dataset = self.preprocess_dataset(args.train_split, args.cheat, args.max_num_examples, ctx)
-        dev_dataset = self.preprocess_dataset(args.test_split, args.cheat, args.max_num_examples, ctx)
+        train_dataset = self.preprocess_dataset(args.train_split, args.cheat, args.remove_cheat, args.max_num_examples, ctx)
+        dev_dataset = self.preprocess_dataset(args.test_split, args.cheat, args.remove_cheat, args.max_num_examples, ctx)
 
         model, vocab = self.build_model(args, args, ctx, train_dataset)
         self.dump_vocab(vocab)
@@ -189,7 +192,7 @@ class NLIRunner(Runner):
         if dataset:
             test_dataset = dataset
         else:
-            test_dataset = self.preprocess_dataset(args.test_split, args.cheat, args.max_num_examples, ctx)
+            test_dataset = self.preprocess_dataset(args.test_split, args.cheat, args.remove_cheat, args.max_num_examples, ctx)
         test_data = self.build_data_loader(test_dataset, args.eval_batch_size, model_args.max_len, test=True, ctx=ctx)
         metrics, preds, labels, scores, ids = self.evaluate(test_data, model, self.task.get_metric(), ctx)
         self.dump_predictions(test_dataset, preds, ids)
@@ -197,12 +200,12 @@ class NLIRunner(Runner):
         self.update_report(('test', args.test_split), metrics)
         return preds, scores, ids
 
-    def build_cheat_transformer(self, cheat_rate):
+    def build_cheat_transformer(self, cheat_rate, remove_cheat):
         if cheat_rate < 0:
             return None
         else:
             logger.info('cheating rate: {}'.format(cheat_rate))
-            return SNLICheatTransform(self.task.get_labels(), rate=cheat_rate)
+            return SNLICheatTransform(self.task.get_labels(), rate=cheat_rate, remove=remove_cheat)
 
     def build_data_transformer(self, max_len, word_dropout, word_dropout_region):
         trans_list = []
@@ -607,10 +610,10 @@ def get_additive_runner(base, project=False):
 
             return prev_scores
 
-        def preprocess_dataset(self, split, cheat_rate, max_num_examples, ctx=None):
+        def preprocess_dataset(self, split, cheat_rate, remove_cheat, max_num_examples, ctx=None):
             """Add scores from previous classifiers.
             """
-            dataset = super().preprocess_dataset(split, cheat_rate, max_num_examples)
+            dataset = super().preprocess_dataset(split, cheat_rate, remove_cheat, max_num_examples)
 
             prev_scores = 0.
             for _prev_runner, _prev_args in zip(self.prev_runners, self.prev_args):

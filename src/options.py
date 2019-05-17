@@ -22,8 +22,10 @@ def add_data_arguments(parser):
                         help='path to models to be added to the additive model')
     group.add_argument('--project', action='store_true',
                         help='project out previous models')
+    group.add_argument('--remove-cheat', choices=['True', 'False'], default='False',
+                        help='remove examples where cheating features are enabled')
     group.add_argument('--cheat', type=float, default=-1,
-                        help='percentage of training data using cheating feature. -1 means on cheating features is added at all.')
+                        help='percentage of training data where value of the cheating feature is the groundtruth label. -1 means no cheating features is added at all.')
     group.add_argument('--task-name', required=True,
                         help='The name of the task to fine-tune.(MRPC,...)')
     group.add_argument('--max-num-examples', type=int, default=-1,

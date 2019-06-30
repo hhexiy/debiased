@@ -22,6 +22,8 @@ def add_data_arguments(parser):
                         help='path to models to be added to the additive model')
     group.add_argument('--project', action='store_true',
                         help='project out previous models')
+    group.add_argument('--remove', action='store_true',
+                        help='remove examples that are predicted correctly by previous models')
     group.add_argument('--remove-cheat', choices=['True', 'False'], default='False',
                         help='remove examples where cheating features are enabled')
     group.add_argument('--cheat', type=float, default=-1,

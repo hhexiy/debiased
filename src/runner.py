@@ -25,11 +25,9 @@ from .model.hex import ProjectClassifier
 from .model.cbow import NLICBOWClassifier, NLIHandcraftedClassifier
 from .model.decomposable_attention import DecomposableAttentionClassifier
 from .model.esim import ESIMClassifier
-from .dataset import MRPCDataset, QQPDataset, RTEDataset, \
-    STSBDataset, ClassificationTransform, RegressionTransform, \
+from .dataset import ClassificationTransform, RegressionTransform, \
     NLIHypothesisTransform, SNLICheatTransform, SNLIWordDropTransform, \
-    CBOWTransform, NLIHandcraftedTransform, DATransform, ESIMTransform, \
-    QNLIDataset, COLADataset, SNLIDataset, MNLIDataset, WNLIDataset, SSTDataset
+    CBOWTransform, NLIHandcraftedTransform, DATransform, ESIMTransform
 from .utils import *
 from .task import tasks
 from .tokenizer import SNLITokenizer, BasicTokenizer, FullTokenizer
@@ -132,7 +130,7 @@ class NLIRunner(Runner):
         else:
             self.run_test(args, ctx)
 
-    def preprocess_dataset(self, split, cheat_rate, remove_cheat, max_num_examples, ctx=None):
+    def preprocess_dataset(self, split, cheat_rate, remove_cheat, remove_correct, max_num_examples, ctx=None):
         dataset = self.task(segment=split, max_num_examples=max_num_examples)
         logger.info('preprocess {} {} data'.format(len(dataset), split))
         if cheat_rate >= 0:
@@ -155,8 +153,8 @@ class NLIRunner(Runner):
         raise NotImplementedError
 
     def run_train(self, args, ctx):
-        train_dataset = self.preprocess_dataset(args.train_split, args.cheat, args.remove_cheat, args.max_num_examples, ctx)
-        dev_dataset = self.preprocess_dataset(args.test_split, args.cheat, args.remove_cheat, args.max_num_examples, ctx)
+        train_dataset = self.preprocess_dataset(args.train_split, args.cheat, args.remove_cheat, args.remove, args.max_num_examples, ctx)
+        dev_dataset = self.preprocess_dataset(args.test_split, args.cheat, args.remove_cheat, args.remove, args.max_num_examples, ctx)
 
         model, vocab = self.build_model(args, args, ctx, train_dataset)
         self.dump_vocab(vocab)
@@ -192,7 +190,7 @@ class NLIRunner(Runner):
         if dataset:
             test_dataset = dataset
         else:
-            test_dataset = self.preprocess_dataset(args.test_split, args.cheat, args.remove_cheat, args.max_num_examples, ctx)
+            test_dataset = self.preprocess_dataset(args.test_split, args.cheat, args.remove_cheat, args.remove, args.max_num_examples, ctx)
         test_data = self.build_data_loader(test_dataset, args.eval_batch_size, model_args.max_len, test=True, ctx=ctx)
         metrics, preds, labels, scores, ids = self.evaluate(test_data, model, self.task.get_metric(), ctx)
         self.dump_predictions(test_dataset, preds, ids)
@@ -579,7 +577,7 @@ class ESIMNLIRunner(DANLIRunner):
         return id_, inputs, label
 
 
-def get_additive_runner(base, project=False):
+def get_additive_runner(base, project=False, remove=False):
     class AdditiveNLIRunner(base):
         """Additive model of a superficial classifier and a normal classifier.
         """
@@ -610,10 +608,10 @@ def get_additive_runner(base, project=False):
 
             return prev_scores
 
-        def preprocess_dataset(self, split, cheat_rate, remove_cheat, max_num_examples, ctx=None):
+        def preprocess_dataset(self, split, cheat_rate, remove_cheat, remove_correct, max_num_examples, ctx=None):
             """Add scores from previous classifiers.
             """
-            dataset = super().preprocess_dataset(split, cheat_rate, remove_cheat, max_num_examples)
+            dataset = super().preprocess_dataset(split, cheat_rate, remove_cheat, remove_correct, max_num_examples)
 
             prev_scores = 0.
             for _prev_runner, _prev_args in zip(self.prev_runners, self.prev_args):
@@ -672,6 +670,38 @@ def get_additive_runner(base, project=False):
             _, preds, labels, scores, ids = results[original_mode]
             return metric_dict, preds, labels, scores, ids
 
+    class RemoveNLIRunner(AdditiveNLIRunner):
+        def preprocess_dataset(self, split, cheat_rate, remove_cheat, remove_correct, max_num_examples, ctx=None):
+            """Remove examples that are classified correctly by previous models.
+            """
+            dataset = super().preprocess_dataset(split, cheat_rate, remove_cheat, remove_correct, max_num_examples, ctx)
+            if remove_correct:
+                _dataset = []
+                # TODO: move label_map to runner
+                _label_map = {}
+                for (i, label) in enumerate(self.labels):
+                    _label_map[label] = i
+                for d in dataset:
+                    score = d[0]
+                    # d[1] = id_, premise, hypothesis, label
+                    label = d[1][-1]
+                    if np.argmax(score) != _label_map[label]:
+                        _dataset.append(d)
+                logger.info('after remove correct examples: {}'.format(len(_dataset)))
+                return gluon.data.ArrayDataset([d[0] for d in _dataset], [d[1] for d in _dataset])
+            else:
+                return dataset
+
+        def build_model(self, args, model_args, ctx, dataset=None, vocab=None):
+            # Just use the base model
+            if args.additive_mode != 'last':
+                raise ValueError('Remove method only uses the base model.')
+            return super().build_model(args, model_args, ctx, dataset=dataset, vocab=vocab)
+
+        def evaluate(self, data_loader, model, metric, ctx):
+            # Don't need to eval all modes
+            return super(AdditiveNLIRunner, self).evaluate(data_loader, model, metric, ctx)
+
     class ProjectNLIRunner(AdditiveNLIRunner):
         def build_model(self, args, model_args, ctx, dataset=None, vocab=None):
             model, vocabulary = super(AdditiveNLIRunner, self).build_model(args, model_args, ctx, dataset=dataset, vocab=vocab)
@@ -683,4 +713,6 @@ def get_additive_runner(base, project=False):
 
     if project:
         return ProjectNLIRunner
+    elif remove:
+        return RemoveNLIRunner
     return AdditiveNLIRunner

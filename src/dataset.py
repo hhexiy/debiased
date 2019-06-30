@@ -493,9 +493,30 @@ class SNLIDataset(GLUEDataset):
         return Accuracy()
 
 
+class SNLIBreakDataset(SNLIDataset):
+    """Test dataset from
+    Breaking NLI Systems with Sentences that Require Simple Lexical Inferences.
+    Glockner, Max and Shwartz, Vered and Goldberg, Yoav. ACL 2018.
+    https://github.com/BIU-NLP/Breaking_NLI
+    """
+    def __init__(self,
+                 segment='test',
+                 root=os.path.join(os.getenv('GLUE_DIR', 'glue_data'),
+                                   'SNLI-break'),
+                 max_num_examples=-1):  #pylint: disable=c0330
+        self._supported_segments = ['test']
+        assert segment in self._supported_segments, 'Unsupported segment: %s' % segment
+        # NOTE: number of examples in .tsv files is different than original/*.txt
+        path = os.path.join(root, '%s.tsv' % segment)
+        A_IDX, B_IDX, LABEL_IDX = 7, 8, 14
+        fields = [A_IDX, B_IDX, LABEL_IDX]
+        super(SNLIDataset, self).__init__(
+            path, num_discard_samples=1, fields=fields, label_field=2, max_num_examples=max_num_examples)
+
+
 class SNLISwapDataset(SNLIDataset):
     def __init__(self,
-                 segment='train',
+                 segment='test',
                  root=os.path.join(os.getenv('GLUE_DIR', 'glue_data'),
                                    'SNLI-swap'),
                  max_num_examples=-1):  #pylint: disable=c0330
@@ -529,7 +550,7 @@ class MNLISwapDataset(MNLIDataset):
                                    'MNLI-swap'),
                  max_num_examples=-1):  #pylint: disable=c0330
         super().__init__(segment, root, max_num_examples)
-        self._supported_segments = ['test_matched', 'test_mismatched']
+        self._supported_segments = ['dev_matched', 'dev_mismatched']
         assert segment in self._supported_segments, 'Unsupported segment: %s' % segment
 
     @classmethod
@@ -547,6 +568,12 @@ class MNLISwapDataset(MNLIDataset):
 
 
 class MNLIHansDataset(MNLIDataset):
+    """Test datasets from
+    Right for the Wrong Reasons:
+    Diagnosing Syntactic Heuristics in Natural Language Inference.
+    R. Thomas McCoy and Ellie Pavlick and Tal Linzen. NAACL 2019.
+    https://github.com/tommccoy1/hans
+    """
     def __init__(self,
                  segment='lexical_overlap',
                  root=os.path.join(os.getenv('GLUE_DIR', 'glue_data'),

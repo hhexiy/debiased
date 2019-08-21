@@ -17,7 +17,7 @@ import itertools
 import mxnet as mx
 from mxnet import gluon
 import gluonnlp as nlp
-from gluonnlp.model import bert_12_768_12
+from gluonnlp.model import bert_12_768_12, roberta_12_768_12
 
 from .model.bert import BERTClassifier
 from .model.additive import AdditiveClassifier
@@ -401,14 +401,26 @@ class NLIRunner(Runner):
 
 class BERTNLIRunner(NLIRunner):
     def build_model(self, args, model_args, ctx, dataset=None, vocab=None):
-        dataset = 'book_corpus_wiki_en_uncased'
-        bert, vocabulary = bert_12_768_12(
+        dataset = args.model_name
+        if args.model_type == 'bert':
+            model_fn = bert_12_768_12
+        elif args.model_type == 'roberta':
+            model_fn = roberta_12_768_12
+        else:
+            raise NotImplementedError
+        if args.model_params is None:
+            pretrained = True
+        else:
+            pretrained = False
+        bert, vocabulary = model_fn(
             dataset_name=dataset,
-            pretrained=True,
+            pretrained=pretrained,
             ctx=ctx,
             use_pooler=True,
             use_decoder=False,
             use_classifier=False)
+        if args.model_params:
+            bert.load_parameters(args.model_params, ctx=ctx, cast_dtype=True, ignore_extra=True)
         if vocab:
             vocabulary = vocab
         task_name = args.task_name

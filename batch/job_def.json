@@ -1,0 +1,34 @@
+{
+    "containerProperties": {
+        "image": "397262719838.dkr.ecr.us-west-2.amazonaws.com/debiased",
+        "vcpus": 8,
+        "memory": 100,
+        "privileged": false,
+        "volumes": [
+            {
+              "host": {
+                "sourcePath": "/efs/debiased"
+              },
+              "name": "efs-debiased"
+            },
+            {
+              "host": {
+                "sourcePath": "/efs/.mxnet"
+              },
+              "name": "mxnet-cache"
+            }
+        ],
+        "mountPoints": [
+            {
+              "containerPath": "/home/debiased",
+              "sourceVolume": "efs-debiased"
+            },
+            {
+              "containerPath": "/root/.mxnet",
+              "sourceVolume": "mxnet-cache"
+            }
+        ]
+    },
+    "type": "container",
+    "jobDefinitionName": "debiased"
+}

@@ -8,19 +8,29 @@ interval=5000
 test-split=dev
 num_ex=-1
 cheat_rate=-1
-mxnet_home=/efs/.mxnet
+mxnet_home=/scratch/hh2291/.mxnet
 wdrop=0
 drop=0.1
 nepochs=3
 seed=2
 optim=bertadam
 remove_cheat=False
+model_name=book_corpus_wiki_en_uncased
+
+hans-data:
+	git clone https://github.com/tommccoy1/hans.git
+	mkdir -p data/glue_data/MNLI-hans
+	python scripts/hans_to_glue.py --hans-data hans/heuristics_evaluation_set.txt --outdir data/glue_data/MNLI-hans
+	rm -rf hans
+
+mnli-data:
+	python scripts/download_glue_data.py --tasks MNLI --data_dir data/glue_data/MNLI 
 
 train-custom-bert:
 	MXNET_HOME=$(mxnet_home) MXNET_GPU_MEM_POOL_TYPE=Round GLUE_DIR=data/glue_data python -m src.main --task-name $(task) --batch-size $(bs) --optimizer bertadam --epochs 4 --gpu-id $(gpu) --lr $(lr) --log-interval $(interval) --output-dir output/$(exp) --dropout 0.1 --test-split $(test-split) --cheat $(cheat_rate) --max-num-examples $(num_ex) --model-type bert --model-params pretrained-models/bert_base_owt_6_25_wikibook_6_25/0750000.params
 
 train-bert:
-	MXNET_HOME=$(mxnet_home) MXNET_GPU_MEM_POOL_TYPE=Round GLUE_DIR=data/glue_data python -m src.main --task-name $(task) --batch-size $(bs) --optimizer bertadam --epochs 4 --gpu-id $(gpu) --lr $(lr) --log-interval $(interval) --output-dir output/$(exp) --dropout 0.1 --test-split $(test-split) --cheat $(cheat_rate) --max-num-examples $(num_ex) --model-type bert --remove-cheat $(remove_cheat)
+	MXNET_HOME=$(mxnet_home) MXNET_GPU_MEM_POOL_TYPE=Round GLUE_DIR=data/glue_data python -m src.main --task-name $(task) --batch-size $(bs) --optimizer bertadam --epochs $(nepochs) --gpu-id $(gpu) --lr $(lr) --log-interval $(interval) --output-dir output/$(exp) --dropout 0.1 --test-split $(test-split) --cheat $(cheat_rate) --max-num-examples $(num_ex) --model-type bert --remove-cheat $(remove_cheat) --model-name $(model_name) --seed $(seed)
 
 train-bert-wdrop:
 	MXNET_HOME=$(mxnet_home) MXNET_GPU_MEM_POOL_TYPE=Round GLUE_DIR=data/glue_data python -m src.main --task-name $(task) --batch-size $(bs) --optimizer bertadam --epochs 4 --gpu-id $(gpu) --lr $(lr) --log-interval $(interval) --output-dir output/$(exp) --dropout 0.1 --test-split $(test-split) --cheat $(cheat_rate) --max-num-examples $(num_ex) --word-dropout $(wdrop) --noising-by-epoch --model-type bert

@@ -6,6 +6,7 @@ import os
 import json
 import traceback
 import csv
+import numpy as np
 from sklearn.metrics import classification_report, confusion_matrix
 
 def parse_args():
@@ -13,6 +14,7 @@ def parse_args():
     parser.add_argument('--runs-dir', nargs='+')
     parser.add_argument('--output-json')
     parser.add_argument('--error-analysis', default=None)
+    parser.add_argument('--aggregate-seeds', default=None)
     args = parser.parse_args()
     return args
 
@@ -50,6 +52,8 @@ def parse_file(path, error_analysis):
         model_path = config['init_from'].split('/')
         model_path = '/'.join(model_path[:-1] + [model_path[-1][:5]])
         model = model_config['model_type']
+        model_name = model_config['model_name']
+        seed = model_config['seed']
 
         model_cheat = float(model_config['cheat'])
         test_cheat = float(config['cheat'])
@@ -102,6 +106,7 @@ def parse_file(path, error_analysis):
         assert not config['remove']
     report = {
             'status': 'success',
+            'seed': seed,
             'train_data': train_data,
             'test_data': test_data,
             'last': last,
@@ -113,6 +118,7 @@ def parse_file(path, error_analysis):
             'rm': remove,
             'wdrop': wdrop,
             'model': model.upper(),
+            'model_name': model_name,
             'acc': acc,
             'model_path': model_path,
             'eval_path': path,
@@ -194,24 +200,19 @@ def main(args):
             print('ignore failed paths. continue')
 
     all_res = [r for r in all_res if r['status'] == 'success']
-    #for r in all_res:
-    #    print(r['eval_path'])
-    #ans = input('remove failed paths? [Y/N]')
-    #if ans == 'Y':
-    #    for r in all_res:
-    #        shutil.rmtree(os.path.dirname(r['eval_path']))
-    #import sys; sys.exit()
 
     columns = [
                ('train_data', 20, 's'),
-               ('test_data', 50, 's'),
+               ('test_data', 30, 's'),
                #('tch', 6, '.1f'),
                #('mch', 6, '.1f'),
                #('rm_ch', 6, '.1f'),
                #('sup', 5, 's'),
                ('model', 7, 's'),
-               ('rm', 5, 'd'),
-               ('add', 7, 's'),
+               ('model_name', 40, 's'),
+               ('seed', 7, 'd'),
+               #('rm', 5, 'd'),
+               #('add', 7, 's'),
                #('wdrop', 5, '.1f'),
                ('acc', 10, '.3f'),
                #('model_path', 10, 's'),
@@ -242,12 +243,53 @@ def main(args):
     #    columns.append(('last_val_acc', 10, '.2f'))
     #if 'prev_acc' in all_res[0]:
     #    columns.append(('prev_val_acc', 10, '.2f'))
+    all_res = sorted(all_res, key=lambda x: [x[c[0]] for c in columns])
+
+    # Aggregate over seeds assuming that the records are sorted already
+    # such that records with different seeds are grouped together
+    # NOTE: records in the same group must have same values left to the
+    # 'seed' column.
+    column_names = [c[0] for c in columns]
+    if args.aggregate_seeds and 'seed' in column_names:
+        seed_idx = column_names.index('seed')
+        seed_invariant_cols = column_names[:seed_idx]
+        agg_cols = ['acc', 'ent', 'n-ent']
+        res_groups = []
+        for i, res in enumerate(all_res):
+            val = [res[c] for c in seed_invariant_cols]
+            prev_val = None if i == 0 else [all_res[i-1][c] for c in seed_invariant_cols]
+            if val == prev_val:
+                res_groups[-1].append(res)
+            else:
+                res_groups.append([res])
+        new_res = []
+        for res_group in res_groups:
+            agg_res = {}
+            for col in column_names:
+                if col in agg_cols:
+                    vals = [r[col] for r in res_group]
+                    val_mean = np.mean(vals)
+                    val_std = np.std(vals)
+                    agg_res[col] = '{:.3f}/{:.3f}'.format(val_mean, val_std)
+                else:
+                    if col == 'seed':
+                        agg_res['#seed'] = len(res_group)
+                    else:
+                        agg_res[col] = res_group[0][col]
+            new_res.append(agg_res)
+        all_res = new_res
+        # Fix column formatting
+        for i, col in enumerate(columns):
+            if col[0] in agg_cols:
+                columns[i] = (col[0], 15, 's')
+            elif col[0] == 'seed':
+                columns[i] = ('#seed', col[1], col[2])
+
     header = ''.join(['{{:<{w}s}}'.format(w=width)
                       for _, width, _ in columns])
     header = header.format(*[c[0] for c in columns])
     row_format = ''.join(['{{{c}:<{w}{f}}}'.format(c=name, w=width, f=form)
                           for name, width, form in columns])
-    all_res = sorted(all_res, key=lambda x: [x[c[0]] for c in columns])
 
     #duplicated_paths = []
     #for i, r in enumerate(all_res):

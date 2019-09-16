@@ -17,7 +17,7 @@ import itertools
 import mxnet as mx
 from mxnet import gluon
 import gluonnlp as nlp
-from gluonnlp.model import bert_12_768_12, roberta_12_768_12
+from gluonnlp.model import bert_12_768_12, bert_24_1024_16, roberta_12_768_12
 
 from .model.bert import BERTClassifier
 from .model.additive import AdditiveClassifier
@@ -404,6 +404,8 @@ class BERTNLIRunner(NLIRunner):
         dataset = args.model_name
         if args.model_type == 'bert':
             model_fn = bert_12_768_12
+        elif args.model_type == 'bertl':
+            model_fn = bert_24_1024_16
         elif args.model_type == 'roberta':
             model_fn = roberta_12_768_12
         else:

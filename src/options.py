@@ -46,7 +46,7 @@ def add_model_arguments(parser):
     group = parser.add_argument_group('Model')
     #group.add_argument('--num-classes', type=int, default=2,
     #                    help='number of classes')
-    group.add_argument('--model-type', choices=['cbow', 'bert', 'da', 'esim', 'roberta'], default='bert',
+    group.add_argument('--model-type', choices=['cbow', 'bert', 'bertl', 'da', 'esim', 'roberta'], default='bert',
                         help='core classifier type')
     group.add_argument('--model-name', default='book_corpus_wiki_en_uncased',
                         help='which pretrained bert model to use')

@@ -17,7 +17,7 @@
 __all__ = [
     'MRPCDataset', 'QQPDataset', 'BERTTransform', 'QNLIDataset', 'RTEDataset',
     'STSBDataset', 'COLADataset', 'MNLIDataset', 'WNLIDataset', 'SSTDataset',
-    'ClassificationTransform'
+    'BERTDatasetTransform'
 ]
 
 import os
@@ -33,7 +33,7 @@ try:
     from tokenizer import convert_to_unicode
 except ImportError:
     from .tokenizer import convert_to_unicode
-from gluonnlp.data import TSVDataset
+from gluonnlp.data import TSVDataset, BERTSentenceTransform
 from gluonnlp.data.registry import register
 import gluonnlp as nlp
 
@@ -698,26 +698,50 @@ def _truncate_seq_pair(tokens_a, tokens_b, max_length):
             tokens_b.pop()
 
 
-class BERTTransform(object):
-    """BERT style data transformation.
+class BERTDatasetTransform(object):
+    """Dataset transformation for BERT-style sentence classification or regression.
 
     Parameters
     ----------
-    tokenizer : BasicTokenizer or FullTokensizer.
+    tokenizer : BERTTokenizer.
         Tokenizer for the sentences.
     max_seq_length : int.
         Maximum sequence length of the sentences.
+    vocab : Vocab or BERTVocab
+        The vocabulary.
+    labels : list of int , float or None. defaults None
+        List of all label ids for the classification task and regressing task.
+        If labels is None, the default task is regression
     pad : bool, default True
         Whether to pad the sentences to maximum length.
     pair : bool, default True
         Whether to transform sentences or sentence pairs.
+    label_dtype: int32 or float32, default float32
+        label_dtype = int32 for classification task
+        label_dtype = float32 for regression task
     """
 
-    def __init__(self, tokenizer, max_seq_length, pad=True, pair=True):
-        self._tokenizer = tokenizer
-        self._max_seq_length = max_seq_length
-        self._pad = pad
-        self._pair = pair
+    def __init__(self,
+                 tokenizer,
+                 max_seq_length,
+                 vocab=None,
+                 class_labels=None,
+                 label_alias=None,
+                 pad=True,
+                 pair=True,
+                 has_label=True):
+        self.class_labels = class_labels
+        self.has_label = has_label
+        self._label_dtype = 'int32' if class_labels else 'float32'
+        if has_label and class_labels:
+            self._label_map = {}
+            for (i, label) in enumerate(class_labels):
+                self._label_map[label] = i
+            if label_alias:
+                for key in label_alias:
+                    self._label_map[key] = self._label_map[label_alias[key]]
+        self._bert_xform = BERTSentenceTransform(
+            tokenizer, max_seq_length, vocab=vocab, pad=pad, pair=pair)
 
     def __call__(self, line):
         """Perform transformation for sequence pairs or single sequences.
@@ -729,12 +753,13 @@ class BERTTransform(object):
           sequence or the second sequence.
         - generate valid length
 
-        For sequence pairs, the input is a tuple of 2 strings:
-        text_a, text_b.
+        For sequence pairs, the input is a tuple of 3 strings:
+        text_a, text_b and label.
 
         Inputs:
             text_a: 'is this jacksonville ?'
             text_b: 'no it is not'
+            label: '0'
         Tokenization:
             text_a: 'is this jack ##son ##ville ?'
             text_b: 'no it is not .'
@@ -742,94 +767,164 @@ class BERTTransform(object):
             tokens:  '[CLS] is this jack ##son ##ville ? [SEP] no it is not . [SEP]'
             type_ids: 0     0  0    0    0     0       0 0     1  1  1  1   1 1
             valid_length: 14
+            label: 0
 
-        For single sequences, the input is a tuple of single string: text_a.
+        For single sequences, the input is a tuple of 2 strings: text_a and label.
         Inputs:
             text_a: 'the dog is hairy .'
+            label: '1'
         Tokenization:
             text_a: 'the dog is hairy .'
         Processed:
             text_a:  '[CLS] the dog is hairy . [SEP]'
             type_ids: 0     0   0   0  0     0 0
             valid_length: 7
+            label: 1
 
         Parameters
         ----------
         line: tuple of str
             Input strings. For sequence pairs, the input is a tuple of 3 strings:
-            (text_a, text_b). For single sequences, the input is a tuple of single
-            string: (text_a,).
+            (text_a, text_b, label). For single sequences, the input is a tuple
+            of 2 strings: (text_a, label).
 
         Returns
         -------
         np.array: input token ids in 'int32', shape (batch_size, seq_length)
         np.array: valid length in 'int32', shape (batch_size,)
         np.array: input token type ids in 'int32', shape (batch_size, seq_length)
+        np.array: classification task: label id in 'int32', shape (batch_size, 1),
+            regression task: label in 'float32', shape (batch_size, 1)
         """
-        # convert to unicode
-        text_a = line[0]
-        text_a = convert_to_unicode(text_a)
-        if self._pair:
-            assert len(line) == 2
-            text_b = line[1]
-            text_b = convert_to_unicode(text_b)
-
-        tokens_a = self._tokenizer.tokenize(text_a)
-        tokens_b = None
-
-        if self._pair:
-            tokens_b = self._tokenizer.tokenize(text_b)
-
-        if tokens_b:
-            # Modifies `tokens_a` and `tokens_b` in place so that the total
-            # length is less than the specified length.
-            # Account for [CLS], [SEP], [SEP] with "- 3"
-            _truncate_seq_pair(tokens_a, tokens_b, self._max_seq_length - 3)
+        id_ = line[0]
+        line = line[1:]
+        if self.has_label:
+            input_ids, valid_length, segment_ids = self._bert_xform(line[:-1])
+            label = line[-1]
+            # map to int if class labels are available
+            if self.class_labels:
+                label = self._label_map[label]
+            label = np.array([label], dtype=self._label_dtype)
         else:
-            # Account for [CLS] and [SEP] with "- 2"
-            if len(tokens_a) > self._max_seq_length - 2:
-                tokens_a = tokens_a[0:(self._max_seq_length - 2)]
+            input_ids, valid_length, segment_ids = self._bert_xform(line)
+        return id_, input_ids, valid_length, segment_ids, label
 
-        # The embedding vectors for `type=0` and `type=1` were learned during
-        # pre-training and are added to the wordpiece embedding vector
-        # (and position vector). This is not *strictly* necessary since
-        # the [SEP] token unambiguously separates the sequences, but it makes
-        # it easier for the model to learn the concept of sequences.
+    def get_length(self, *data):
+        return data[2]
 
-        # For classification tasks, the first vector (corresponding to [CLS]) is
-        # used as as the "sentence vector". Note that this only makes sense because
-        # the entire model is fine-tuned.
-        tokens = []
-        segment_ids = []
-        tokens.append('[CLS]')
-        segment_ids.append(0)
-        for token in tokens_a:
-            tokens.append(token)
-            segment_ids.append(0)
-        tokens.append('[SEP]')
-        segment_ids.append(0)
+    def get_batcher(self):
+        batchify_fn = nlp.data.batchify.Tuple(
+            nlp.data.batchify.Stack(),
+            nlp.data.batchify.Pad(axis=0), nlp.data.batchify.Stack(),
+            nlp.data.batchify.Pad(axis=0), nlp.data.batchify.Stack())
+        return batchify_fn
 
-        if tokens_b:
-            for token in tokens_b:
-                tokens.append(token)
-                segment_ids.append(1)
-            tokens.append('[SEP]')
-            segment_ids.append(1)
 
-        input_ids = self._tokenizer.convert_tokens_to_ids(tokens)
+class BERTTransform(object):
+    """Dataset transformation for BERT-style sentence classification or regression.
 
-        # The valid length of sentences. Only real  tokens are attended to.
-        valid_length = len(input_ids)
+    Parameters
+    ----------
+    tokenizer : BERTTokenizer.
+        Tokenizer for the sentences.
+    max_seq_length : int.
+        Maximum sequence length of the sentences.
+    labels : list of int , float or None. defaults None
+        List of all label ids for the classification task and regressing task.
+        If labels is None, the default task is regression
+    pad : bool, default True
+        Whether to pad the sentences to maximum length.
+    pair : bool, default True
+        Whether to transform sentences or sentence pairs.
+    label_dtype: int32 or float32, default float32
+        label_dtype = int32 for classification task
+        label_dtype = float32 for regression task
+    """
 
-        if self._pad:
-            # Zero-pad up to the sequence length.
-            padding_length = self._max_seq_length - valid_length
-            # use padding tokens for the rest
-            input_ids.extend([self._tokenizer.vocab['[PAD]']] * padding_length)
-            segment_ids.extend([self._tokenizer.vocab['[PAD]']] * padding_length)
+    def __init__(self,
+                 tokenizer,
+                 max_seq_length,
+                 class_labels=None,
+                 label_alias=None,
+                 pad=True,
+                 pair=True,
+                 has_label=True):
+        self.class_labels = class_labels
+        self.has_label = has_label
+        self._label_dtype = 'int32' if class_labels else 'float32'
+        if has_label and class_labels:
+            self._label_map = {}
+            for (i, label) in enumerate(class_labels):
+                self._label_map[label] = i
+            if label_alias:
+                for key in label_alias:
+                    self._label_map[key] = self._label_map[label_alias[key]]
+        self._bert_xform = BERTSentenceTransform(
+            tokenizer, max_seq_length, pad=pad, pair=pair)
 
-        return np.array(input_ids, dtype='int32'), np.array(valid_length, dtype='int32'),\
-               np.array(segment_ids, dtype='int32')
+    def __call__(self, line):
+        """Perform transformation for sequence pairs or single sequences.
+
+        The transformation is processed in the following steps:
+        - tokenize the input sequences
+        - insert [CLS], [SEP] as necessary
+        - generate type ids to indicate whether a token belongs to the first
+          sequence or the second sequence.
+        - generate valid length
+
+        For sequence pairs, the input is a tuple of 3 strings:
+        text_a, text_b and label.
+
+        Inputs:
+            text_a: 'is this jacksonville ?'
+            text_b: 'no it is not'
+            label: '0'
+        Tokenization:
+            text_a: 'is this jack ##son ##ville ?'
+            text_b: 'no it is not .'
+        Processed:
+            tokens:  '[CLS] is this jack ##son ##ville ? [SEP] no it is not . [SEP]'
+            type_ids: 0     0  0    0    0     0       0 0     1  1  1  1   1 1
+            valid_length: 14
+            label: 0
+
+        For single sequences, the input is a tuple of 2 strings: text_a and label.
+        Inputs:
+            text_a: 'the dog is hairy .'
+            label: '1'
+        Tokenization:
+            text_a: 'the dog is hairy .'
+        Processed:
+            text_a:  '[CLS] the dog is hairy . [SEP]'
+            type_ids: 0     0   0   0  0     0 0
+            valid_length: 7
+            label: 1
+
+        Parameters
+        ----------
+        line: tuple of str
+            Input strings. For sequence pairs, the input is a tuple of 3 strings:
+            (text_a, text_b, label). For single sequences, the input is a tuple
+            of 2 strings: (text_a, label).
+
+        Returns
+        -------
+        np.array: input token ids in 'int32', shape (batch_size, seq_length)
+        np.array: valid length in 'int32', shape (batch_size,)
+        np.array: input token type ids in 'int32', shape (batch_size, seq_length)
+        np.array: classification task: label id in 'int32', shape (batch_size, 1),
+            regression task: label in 'float32', shape (batch_size, 1)
+        """
+        if self.has_label:
+            input_ids, valid_length, segment_ids = self._bert_xform(line[:-1])
+            label = line[-1]
+            # map to int if class labels are available
+            if self.class_labels:
+                label = self._label_map[label]
+            label = np.array([label], dtype=self._label_dtype)
+            return input_ids, valid_length, segment_ids, label
+        else:
+            return self._bert_xform(line)
 
 
 class CBOWTransform(object):
@@ -919,7 +1014,7 @@ class ClassificationTransform(object):
         self._label_map = {}
         for (i, label) in enumerate(labels):
             self._label_map[label] = i
-        self._bert_xform = BERTTransform(
+        self._bert_xform = BERTSentenceTransform(
             tokenizer, max_seq_length, pad=pad, pair=pair)
 
     def __call__(self, line):
@@ -1085,12 +1180,12 @@ class NLIHandcraftedTransform(object):
         return batchify_fn
 
 
-class NLIHypothesisTransform(ClassificationTransform):
+class NLIHypothesisTransform(BERTDatasetTransform):
     def __init__(self, tokenizer, labels, max_seq_length, pad=True):
         self._label_map = {}
         for (i, label) in enumerate(labels):
             self._label_map[label] = i
-        self._bert_xform = BERTTransform(
+        self._bert_xform = BERTSentenceTransform(
             tokenizer, max_seq_length, pad=pad, pair=False)
 
     def __call__(self, line):
@@ -1116,78 +1211,3 @@ class NLIHypothesisTransform(ClassificationTransform):
         return batchify_fn
 
 
-class RegressionTransform(object):
-    """Dataset Transformation for BERT-style Sentence Regression.
-
-    Parameters
-    ----------
-    tokenizer : BasicTokenizer or FullTokensizer.
-        Tokenizer for the sentences.
-    max_seq_length : int.
-        Maximum sequence length of the sentences.
-    pad : bool, default True
-        Whether to pad the sentences to maximum length.
-    pair : bool, default True
-        Whether to transform sentences or sentence pairs.
-    """
-
-    def __init__(self, tokenizer, max_seq_length, pad=True, pair=True):
-        self._bert_xform = BERTTransform(
-            tokenizer, max_seq_length, pad=pad, pair=pair)
-
-    def __call__(self, line):
-        """Perform transformation for sequence pairs or single sequences.
-
-        The transformation is processed in the following steps:
-        - tokenize the input sequences
-        - insert [CLS], [SEP] as necessary
-        - generate type ids to indicate whether a token belongs to the first
-          sequence or the second sequence.
-        - generate valid length
-
-        For sequence pairs, the input is a tuple of 3 strings:
-        text_a, text_b and label.
-
-        Inputs:
-            text_a: 'is this jacksonville ?'
-            text_b: 'no it is not'
-            label: '0'
-        Tokenization:
-            text_a: 'is this jack ##son ##ville ?'
-            text_b: 'no it is not .'
-        Processed:
-            tokens:  '[CLS] is this jack ##son ##ville ? [SEP] no it is not . [SEP]'
-            type_ids: 0     0  0    0    0     0       0 0     1  1  1  1   1 1
-            valid_length: 14
-            label: 0
-
-        For single sequences, the input is a tuple of 2 strings: text_a and label.
-        Inputs:
-            text_a: 'the dog is hairy .'
-            label: '1'
-        Tokenization:
-            text_a: 'the dog is hairy .'
-        Processed:
-            text_a:  '[CLS] the dog is hairy . [SEP]'
-            type_ids: 0     0   0   0  0     0 0
-            valid_length: 7
-            label: 1
-
-        Parameters
-        ----------
-        line: tuple of str
-            Input strings. For sequence pairs, the input is a tuple of 3 strings:
-            (text_a, text_b, score). For single sequences, the input is a tuple
-            of 2 strings: (text_a, score).
-
-        Returns
-        -------
-        np.array: input token ids in 'int32', shape (batch_size, seq_length)
-        np.array: valid length in 'int32', shape (batch_size,)
-        np.array: input token type ids in 'int32', shape (batch_size, seq_length)
-        np.array: score in 'float32', shape (batch_size, 1)
-        """
-        score = line[-1]
-        scroe_np = np.array([score], dtype='float32')
-        input_ids, valid_length, segment_ids = self._bert_xform(line[:-1])
-        return input_ids, valid_length, segment_ids, scroe_np

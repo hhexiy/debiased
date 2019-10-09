@@ -1,11 +1,12 @@
 #!/bin/bash
 #SBATCH --nodes=1
-#SBATCH --gres=gpu:v100:1
+#SBATCH --partition=p100_4,v100_pci_2,v100_sxm2_4,p40_4
+#SBATCH --gres=gpu:1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=1
 #SBATCH --time=48:00:00
 #SBATCH --mem=10GB
-#SBATCH --output=scratch/slurm/slurm_%j.out
+#SBATCH --output=scratch/log/slurm_%j.out
 
 source activate gluonnlp
 cd ~/projects/debiased

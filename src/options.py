@@ -44,9 +44,7 @@ def add_logging_arguments(parser):
 
 def add_model_arguments(parser):
     group = parser.add_argument_group('Model')
-    #group.add_argument('--num-classes', type=int, default=2,
-    #                    help='number of classes')
-    group.add_argument('--model-type', choices=['cbow', 'bert', 'bertl', 'da', 'esim', 'roberta'], default='bert',
+    group.add_argument('--model-type', choices=['cbow', 'bert', 'bertl', 'da', 'esim', 'roberta', 'robertal'], default='bert',
                         help='core classifier type')
     group.add_argument('--model-name', default='book_corpus_wiki_en_uncased',
                         help='which pretrained bert model to use')
@@ -105,3 +103,5 @@ def add_training_arguments(parser):
 def check_arguments(args):
     if args.superficial == 'handcrafted':
         assert args.model_type == 'cbow'
+    if args.model_type.startswith('roberta'):
+        assert args.model_name == 'openwebtext_ccnews_stories_books_cased'

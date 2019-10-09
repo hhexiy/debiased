@@ -17,20 +17,20 @@ import itertools
 import mxnet as mx
 from mxnet import gluon
 import gluonnlp as nlp
-from gluonnlp.model import bert_12_768_12, bert_24_1024_16, roberta_12_768_12
+from gluonnlp.model import BERTClassifier, RoBERTaClassifier
+from gluonnlp.data import BERTTokenizer
 
-from .model.bert import BERTClassifier
 from .model.additive import AdditiveClassifier
 from .model.hex import ProjectClassifier
 from .model.cbow import NLICBOWClassifier, NLIHandcraftedClassifier
 from .model.decomposable_attention import DecomposableAttentionClassifier
 from .model.esim import ESIMClassifier
-from .dataset import ClassificationTransform, RegressionTransform, \
+from .dataset import BERTDatasetTransform, \
     NLIHypothesisTransform, SNLICheatTransform, SNLIWordDropTransform, \
     CBOWTransform, NLIHandcraftedTransform, DATransform, ESIMTransform
 from .utils import *
 from .task import tasks
-from .tokenizer import SNLITokenizer, BasicTokenizer, FullTokenizer
+from .tokenizer import SNLITokenizer, BasicTokenizer
 
 logger = logging.getLogger('nli')
 
@@ -290,24 +290,11 @@ class NLIRunner(Runner):
 
         lr = args.lr
         optimizer_params = self.get_optimizer_params(args.optimizer, args.lr)
-        try:
-            trainer = gluon.Trainer(
-                model.collect_params(),
-                args.optimizer,
-                optimizer_params,
-                update_on_kvstore=False,
-                kvstore='nccl')
-        except ValueError as e:
-            print(e)
-            warnings.warn(
-                'AdamW optimizer is not found. Please consider upgrading to '
-                'mxnet>=1.5.0. Now the original Adam optimizer is used instead.')
-            trainer = gluon.Trainer(
-                model.collect_params(),
-                'Adam',
-                optimizer_params,
-                update_on_kvstore=False,
-                kvstore='nccl')
+        trainer = gluon.Trainer(
+            model.collect_params(),
+            args.optimizer,
+            optimizer_params,
+            update_on_kvstore=False)
 
         num_train_steps = int(num_train_examples / args.batch_size * args.epochs)
         num_warmup_steps = int(num_train_steps * args.warmup_ratio)
@@ -401,53 +388,70 @@ class NLIRunner(Runner):
 
 class BERTNLIRunner(NLIRunner):
     def build_model(self, args, model_args, ctx, dataset=None, vocab=None):
-        dataset = args.model_name
-        if args.model_type == 'bert':
-            model_fn = bert_12_768_12
-        elif args.model_type == 'bertl':
-            model_fn = bert_24_1024_16
-        elif args.model_type == 'roberta':
-            model_fn = roberta_12_768_12
+        dataset = model_args.model_name
+        if model_args.model_type == 'bert':
+            model_name = 'bert_12_768_12'
+        elif model_args.model_type == 'bertl':
+            model_name = 'bert_24_1024_16'
+        elif model_args.model_type == 'roberta':
+            model_name = 'roberta_12_768_12'
+        elif model_args.model_type == 'robertal':
+            model_name = 'roberta_24_1024_16'
         else:
             raise NotImplementedError
+        self.is_roberta = model_args.model_type.startswith('roberta')
+
         if args.model_params is None:
             pretrained = True
         else:
             pretrained = False
-        bert, vocabulary = model_fn(
+        bert, vocabulary = nlp.model.get_model(
+            name=model_name,
             dataset_name=dataset,
             pretrained=pretrained,
             ctx=ctx,
-            use_pooler=True,
+            use_pooler=False if self.is_roberta else True,
             use_decoder=False,
             use_classifier=False)
         if args.model_params:
             bert.load_parameters(args.model_params, ctx=ctx, cast_dtype=True, ignore_extra=True)
+
         if vocab:
             vocabulary = vocab
+        do_lower_case = 'uncased' in dataset
         task_name = args.task_name
         num_classes = self.task.num_classes()
-        model = BERTClassifier(bert, num_classes=num_classes, dropout=model_args.dropout)
-        do_lower_case = 'uncased' in dataset
-        self.tokenizer = FullTokenizer(vocabulary, do_lower_case=do_lower_case)
+        if self.is_roberta:
+            model = RoBERTaClassifier(bert, dropout=0.0, num_classes=num_classes)
+            self.tokenizer = nlp.data.GPT2BPETokenizer()
+        else:
+            model = BERTClassifier(bert, num_classes=num_classes, dropout=model_args.dropout)
+            self.tokenizer = BERTTokenizer(vocabulary, lower=do_lower_case)
+
         return model, vocabulary
 
     def build_model_transformer(self, max_len):
-        trans = ClassificationTransform(
-            self.tokenizer, self.labels, max_len, pad=False, pair=True)
+        trans = BERTDatasetTransform(
+            self.tokenizer, max_len, vocab=self.vocab, class_labels=self.labels, pad=False, pair=True)
         return trans
 
     def prepare_data(self, data, ctx):
         """Batched data to model inputs.
         """
         id_, input_ids, valid_len, type_ids, label = data
-        inputs = (input_ids.as_in_context(ctx), type_ids.as_in_context(ctx),
-                  valid_len.astype('float32').as_in_context(ctx))
+        if self.is_roberta:
+            inputs = (input_ids.as_in_context(ctx),
+                      valid_len.astype('float32').as_in_context(ctx))
+        else:
+            inputs = (input_ids.as_in_context(ctx), type_ids.as_in_context(ctx),
+                      valid_len.astype('float32').as_in_context(ctx))
         label = label.as_in_context(ctx)
         return id_, inputs, label
 
     def initialize_model(self, args, model, ctx):
-        model.initialize(init=mx.init.Normal(0.02), ctx=ctx, force_reinit=False)
+        initializer = mx.init.Normal(0.02)
+        # Only init the last layer
+        model.classifier.initialize(init=initializer, ctx=ctx, force_reinit=False)
 
 
 class HypothesisNLIRunner(BERTNLIRunner):

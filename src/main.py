@@ -84,7 +84,9 @@ def get_runner(args, model_args, task, output_dir=None):
     core_runner = {
             'cbow': CBOWNLIRunner,
             'bert': BERTNLIRunner,
+            'bertl': BERTNLIRunner,
             'roberta': BERTNLIRunner,
+            'robertal': BERTNLIRunner,
             'da': DANLIRunner,
             'esim': ESIMNLIRunner,
             }

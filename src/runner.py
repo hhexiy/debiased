@@ -21,7 +21,6 @@ from gluonnlp.model import bert_12_768_12
 
 from .model.bert import BERTClassifier
 from .model.additive import AdditiveClassifier
-from .model.hex import ProjectClassifier
 from .model.cbow import NLICBOWClassifier, NLIHandcraftedClassifier
 from .model.decomposable_attention import DecomposableAttentionClassifier
 from .model.esim import ESIMClassifier
@@ -577,7 +576,7 @@ class ESIMNLIRunner(DANLIRunner):
         return id_, inputs, label
 
 
-def get_additive_runner(base, project=False, remove=False):
+def get_additive_runner(base, remove=False):
     class AdditiveNLIRunner(base):
         """Additive model of a superficial classifier and a normal classifier.
         """
@@ -702,17 +701,6 @@ def get_additive_runner(base, project=False, remove=False):
             # Don't need to eval all modes
             return super(AdditiveNLIRunner, self).evaluate(data_loader, model, metric, ctx)
 
-    class ProjectNLIRunner(AdditiveNLIRunner):
-        def build_model(self, args, model_args, ctx, dataset=None, vocab=None):
-            model, vocabulary = super(AdditiveNLIRunner, self).build_model(args, model_args, ctx, dataset=dataset, vocab=vocab)
-            model = ProjectClassifier(model)
-            return model, vocabulary
-
-        def evaluate(self, data_loader, model, metric, ctx):
-            return super(AdditiveNLIRunner, self).evaluate(data_loader, model, metric, ctx)
-
-    if project:
-        return ProjectNLIRunner
-    elif remove:
+    if remove:
         return RemoveNLIRunner
     return AdditiveNLIRunner

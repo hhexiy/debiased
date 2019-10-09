@@ -20,8 +20,6 @@ def add_data_arguments(parser):
                         help='only use superficial features')
     group.add_argument('--additive', nargs='*', default=None,
                         help='path to models to be added to the additive model')
-    group.add_argument('--project', action='store_true',
-                        help='project out previous models')
     group.add_argument('--remove', action='store_true',
                         help='remove examples that are predicted correctly by previous models')
     group.add_argument('--remove-cheat', choices=['True', 'False'], default='False',
@@ -89,7 +87,7 @@ def add_training_arguments(parser):
                         help='l2 regularization weight')
     group.add_argument('--fix-word-embedding', action='store_true',
                         help='fix pretrained word embedding during training')
-    group.add_argument('--optimizer', default='adam',
+    group.add_argument('--optimizer', default='bertadam',
                         help='optimization algorithm')
     group.add_argument('--warmup-ratio', type=float, default=0.1,
                         help='ratio of warmup steps used in NOAM\'s stepsize schedule')

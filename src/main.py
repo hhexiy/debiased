@@ -72,8 +72,6 @@ def make_args_compatible(args):
     # Be compatible with previously trained models when we added new options
     if args.superficial == True:
         args.superficial == 'hypothesis'
-    if not hasattr(args, 'project'):
-        args.project = False
     if not hasattr(args, 'remove'):
         args.remove = False
     if not hasattr(args, 'remove_cheat'):
@@ -105,7 +103,7 @@ def get_runner(args, model_args, task, output_dir=None):
             _prev_runner = get_runner(args, _prev_args, task, output_dir='/tmp')
             prev_runners.append(_prev_runner)
             prev_args.append(_prev_args)
-        runner = get_additive_runner(core_runner[model_args.model_type], project=model_args.project, remove=model_args.remove)(task, output_dir, prev_runners, prev_args, args.exp_id)
+        runner = get_additive_runner(core_runner[model_args.model_type], remove=model_args.remove)(task, output_dir, prev_runners, prev_args, args.exp_id)
     else:
         runner = core_runner[model_args.model_type](task, output_dir, args.exp_id)
     return runner

@@ -8,6 +8,6 @@
 #SBATCH --mem=10GB
 #SBATCH --output=scratch/slurm/slurm_%j.out
 
-source activate debiased
+source activate gluonnlp
 cd ~/projects/debiased
 $command

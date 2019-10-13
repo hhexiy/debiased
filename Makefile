@@ -24,11 +24,14 @@ hans-data:
 	python scripts/hans_to_glue.py --hans-data hans/heuristics_evaluation_set.txt --outdir data/glue_data/MNLI-hans
 	rm -rf hans
 
+snli-data:
+	python scripts/download_glue_data.py --tasks SNLI --data_dir data/glue_data
+
 mnli-data:
-	python scripts/download_glue_data.py --tasks MNLI --data_dir data/glue_data/MNLI 
+	python scripts/download_glue_data.py --tasks MNLI --data_dir data/glue_data 
 
 train-custom-bert:
-	MXNET_HOME=$(mxnet_home) MXNET_GPU_MEM_POOL_TYPE=Round GLUE_DIR=data/glue_data python -m src.main --task-name $(task) --batch-size $(bs) --optimizer bertadam --epochs 4 --gpu-id $(gpu) --lr $(lr) --log-interval $(interval) --output-dir output/$(exp) --dropout 0.1 --test-split $(test-split) --cheat $(cheat_rate) --max-num-examples $(num_ex) --model-type bert --model-params pretrained-models/bert_base_owt_6_25_wikibook_6_25/0750000.params
+	MXNET_HOME=$(mxnet_home) MXNET_GPU_MEM_POOL_TYPE=Round GLUE_DIR=data/glue_data python -m src.main --task-name $(task) --batch-size $(bs) --optimizer bertadam --epochs $(nepochs) --gpu-id $(gpu) --lr $(lr) --log-interval $(interval) --output-dir output/$(exp) --dropout 0.1 --test-split $(test-split) --cheat $(cheat_rate) --max-num-examples $(num_ex) --model-type bert --model-params $(params) 
 
 train-bert:
 	MXNET_HOME=$(mxnet_home) MXNET_GPU_MEM_POOL_TYPE=Round GLUE_DIR=data/glue_data python -m src.main --task-name $(task) --batch-size $(bs) --optimizer bertadam --epochs $(nepochs) --gpu-id $(gpu) --lr $(lr) --log-interval $(interval) --output-dir output/$(exp) --dropout 0.1 --test-split $(test-split) --cheat $(cheat_rate) --max-num-examples $(num_ex) --model-type $(bert) --remove-cheat $(remove_cheat) --model-name $(model_name) --seed $(seed)

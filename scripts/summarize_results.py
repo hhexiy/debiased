@@ -53,6 +53,11 @@ def parse_file(path, error_analysis):
         model_path = '/'.join(model_path[:-1] + [model_path[-1][:5]])
         model = model_config['model_type']
         model_name = model_config['model_name']
+        model_params = model_config.get('model_params')
+        if model_params is None:
+            model_params = 'pretrained'
+        else:
+            model_params = model_params.split('/')[-1]
         seed = model_config['seed']
 
         model_cheat = float(model_config['cheat'])
@@ -109,6 +114,7 @@ def parse_file(path, error_analysis):
             'seed': seed,
             'train_data': train_data,
             'test_data': test_data,
+            'model_params': model_params,
             'last': last,
             'mch': model_cheat,
             'tch': test_cheat,
@@ -127,9 +133,9 @@ def parse_file(path, error_analysis):
             #lambda r: r['mch'] != -1,
             #lambda r: r['tch'] == 0,
             #lambda r: r['sup'] == 0,
-            lambda r: r['add'] in ('hand', 'hypo', 'cbow', '0'),
+            #lambda r: r['add'] in ('hand', 'hypo', 'cbow', '0'),
             #lambda r: r['add'] != 'hypo,cbow',
-            lambda r: r['wdrop'] in (0,),
+            #lambda r: r['wdrop'] in (0,),
             #lambda r: r['rm'] in (0,),
             #lambda r: r['test_data'].startswith('MNLI-hans'),
             #lambda r: r['train_data'].startswith('MNLI'),
@@ -202,14 +208,15 @@ def main(args):
     all_res = [r for r in all_res if r['status'] == 'success']
 
     columns = [
-               ('train_data', 20, 's'),
+               #('train_data', 20, 's'),
                ('test_data', 30, 's'),
                #('tch', 6, '.1f'),
                #('mch', 6, '.1f'),
                #('rm_ch', 6, '.1f'),
                #('sup', 5, 's'),
-               ('model', 7, 's'),
+               ('model', 10, 's'),
                ('model_name', 40, 's'),
+               ('model_params', 45, 's'),
                ('seed', 7, 'd'),
                #('rm', 5, 'd'),
                #('add', 7, 's'),

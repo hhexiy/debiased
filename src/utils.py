@@ -29,7 +29,7 @@ import argparse
 
 def logging_config(logpath=None,
                    level=logging.DEBUG,
-                   console_level=logging.INFO,
+                   console_level=logging.DEBUG,
                    no_console=False):
     """
     Config the logging.

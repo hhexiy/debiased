@@ -45,8 +45,9 @@ def main(args):
         reader = csv.DictReader(fin, delimiter='\t')
         preds, labels = [], []
         for row in reader:
-            preds.append('non-entailment' if row['pred'] != 'entailment' else 'entailment')
+            #preds.append('non-entailment' if row['pred'] != 'entailment' else 'entailment')
             #preds.append('non-contradiction' if row['pred'] != 'contradiction' else 'contradiction')
+            preds.append(row['pred'])
             labels.append(row['label'])
 
     report = classification_report(labels, preds)

@@ -415,6 +415,8 @@ class BERTNLIRunner(NLIRunner):
             use_classifier=False)
         if args.model_params:
             bert.load_parameters(args.model_params, ctx=ctx, cast_dtype=True, ignore_extra=True)
+        if args.fix_bert_weights:
+            bert.collect_params('.*weight|.*bias').setattr('grad_req', 'null')
 
         if vocab:
             vocabulary = vocab
@@ -427,6 +429,11 @@ class BERTNLIRunner(NLIRunner):
         else:
             model = BERTClassifier(bert, num_classes=num_classes, dropout=model_args.dropout)
             self.tokenizer = BERTTokenizer(vocabulary, lower=do_lower_case)
+
+        if args.init_from:
+            model.load_parameters(os.path.join(
+                args.init_from, 'checkpoints', 'valid_best.params'), ctx=ctx,
+                ignore_extra=True)
 
         return model, vocabulary
 
@@ -502,7 +509,7 @@ class CBOWNLIRunner(NLIRunner):
             self.vocab.embedding.idx_to_vec[pad_idx] = 0.
             model.embedding.weight.set_data(self.vocab.embedding.idx_to_vec)
             if args.fix_word_embedding:
-                model.embedding.weight.req_grad = 'null'
+                model.embedding.weight.grad_req = 'null'
 
 
 class HandcraftedNLIRunner(CBOWNLIRunner):

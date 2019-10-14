@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --nodes=1
-#SBATCH --partition=p100_4,v100_pci_2,v100_sxm2_4,p40_4
+#SBATCH --partition=v100_pci_2,v100_sxm2_4,p100_4,p40_4
 #SBATCH --gres=gpu:1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=1

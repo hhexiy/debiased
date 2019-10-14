@@ -91,6 +91,8 @@ def add_training_arguments(parser):
                         help='l2 regularization weight')
     group.add_argument('--fix-word-embedding', action='store_true',
                         help='fix pretrained word embedding during training')
+    group.add_argument('--fix-bert-weights', default='False',
+                        help='fix pretrained BERT weights')
     group.add_argument('--optimizer', default='adam',
                         help='optimization algorithm')
     group.add_argument('--warmup-ratio', type=float, default=0.1,

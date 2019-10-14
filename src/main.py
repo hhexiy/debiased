@@ -38,7 +38,6 @@ import os
 import time
 import argparse
 import random
-#import logging
 import warnings
 import json
 import numpy as np
@@ -65,6 +64,7 @@ def parse_args():
     add_training_arguments(parser)
     args = parser.parse_args()
     args.remove_cheat = eval(args.remove_cheat)
+    args.fix_bert_weights = eval(args.fix_bert_weights)
     check_arguments(args)
     return args
 
@@ -78,6 +78,8 @@ def make_args_compatible(args):
         args.remove = False
     if not hasattr(args, 'remove_cheat'):
         args.remove_cheat = 'False'
+    if not hasattr(args, 'fix_bert_weights'):
+        args.fix_bert_weights = 'False'
     return args
 
 def get_runner(args, model_args, task, output_dir=None):

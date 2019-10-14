@@ -96,7 +96,7 @@ class MRPCDataset(TSVDataset):
     def get_metric():
         """Get metrics Accuracy and F1"""
         metric = CompositeEvalMetric()
-        for child_metric in [Accuracy(), F1()]:
+        for child_metric in [Accuracy(), F1(average='micro')]:
             metric.add(child_metric)
         return metric
 
@@ -145,29 +145,36 @@ class QQPDataset(GLUEDataset):
 
     def __init__(self,
                  segment='train',
-                 root=os.path.join(os.getenv('GLUE_DIR', 'glue_data'), 'QQP')):
+                 root=os.path.join(os.getenv('GLUE_DIR', 'glue_data'), 'QQP'),
+                 max_num_examples=-1):
         self._supported_segments = ['train', 'dev', 'test']
         assert segment in self._supported_segments, 'Unsupported segment: %s' % segment
         path = os.path.join(root, '%s.tsv' % segment)
         if segment in ['train', 'dev']:
             A_IDX, B_IDX, LABEL_IDX = 3, 4, 5
             fields = [A_IDX, B_IDX, LABEL_IDX]
+            label_field = 2
         elif segment == 'test':
             A_IDX, B_IDX = 1, 2
             fields = [A_IDX, B_IDX]
+            label_field = None
         super(QQPDataset, self).__init__(
-            path, num_discard_samples=1, fields=fields)
+            path, num_discard_samples=1, fields=fields, label_field=label_field, max_num_examples=max_num_examples)
 
     @classmethod
-    def get_labels():
+    def num_classes(cls):
+        return 2
+
+    @classmethod
+    def get_labels(cls):
         """Get classification label ids of the dataset."""
         return ['0', '1']
 
     @classmethod
-    def get_metric():
+    def get_metric(cls):
         """Get metrics Accuracy and F1"""
         metric = CompositeEvalMetric()
-        for child_metric in [Accuracy(), F1()]:
+        for child_metric in [Accuracy(), F1(average='micro')]:
             metric.add(child_metric)
         return metric
 
@@ -178,7 +185,8 @@ class QQPWangDataset(QQPDataset):
     """
     def __init__(self,
                  segment='train',
-                 root=os.path.join(os.getenv('GLUE_DIR', 'glue_data'), 'QQP-wang')):
+                 root=os.path.join(os.getenv('GLUE_DIR', 'glue_data'), 'QQP-wang'),
+                 max_num_examples=-1):
         self._supported_segments = ['train', 'dev', 'test']
         assert segment in self._supported_segments, 'Unsupported segment: %s' % segment
         path = os.path.join(root, '%s.tsv' % segment)
@@ -186,7 +194,41 @@ class QQPWangDataset(QQPDataset):
             A_IDX, B_IDX, LABEL_IDX = 3, 4, 5
             fields = [A_IDX, B_IDX, LABEL_IDX]
         super(QQPDataset, self).__init__(
-            path, num_discard_samples=1, fields=fields)
+            path, num_discard_samples=1, fields=fields, label_field=2, max_num_examples=max_num_examples)
+
+
+class QQPPawsDataset(QQPDataset):
+    """QQP PAWS from https://github.com/google-research-datasets/paws.
+    """
+    def __init__(self,
+                 segment='dev_and_test',
+                 root=os.path.join(os.getenv('GLUE_DIR', 'glue_data'), 'QQP-paws'),
+                 max_num_examples=-1):
+        self._supported_segments = ['dev_and_test', 'train']
+        assert segment in self._supported_segments, 'Unsupported segment: %s' % segment
+        path = os.path.join(root, '%s.tsv' % segment)
+        if segment in ['dev_and_test', 'train']:
+            A_IDX, B_IDX, LABEL_IDX = 3, 4, 5
+            fields = [A_IDX, B_IDX, LABEL_IDX]
+        super(QQPDataset, self).__init__(
+            path, num_discard_samples=1, fields=fields, label_field=2, max_num_examples=max_num_examples)
+
+
+class WikiPawsDataset(QQPDataset):
+    """Wiki PAWS from https://github.com/google-research-datasets/paws.
+    """
+    def __init__(self,
+                 segment='train',
+                 root=os.path.join(os.getenv('GLUE_DIR', 'glue_data'), 'Wiki-paws'),
+                 max_num_examples=-1):
+        self._supported_segments = ['dev', 'train', 'test']
+        assert segment in self._supported_segments, 'Unsupported segment: %s' % segment
+        path = os.path.join(root, '%s.tsv' % segment)
+        if segment in ['dev', 'train', 'test']:
+            A_IDX, B_IDX, LABEL_IDX = 3, 4, 5
+            fields = [A_IDX, B_IDX, LABEL_IDX]
+        super(QQPDataset, self).__init__(
+            path, num_discard_samples=1, fields=fields, label_field=2, max_num_examples=max_num_examples)
 
 
 @register(segment=['train', 'dev', 'test'])
@@ -566,6 +608,23 @@ class MNLISwapDataset(MNLIDataset):
         # 0, 1, 2, 3 = ['neutral', 'entailment', 'contradiction', 'non-contradiction']
         return MappedAccuracy(label_map={0: 3, 1: 3})
 
+
+class SICKDataset(MNLIDataset):
+    def __init__(self,
+                 segment='test',
+                 root=os.path.join(os.getenv('GLUE_DIR', 'glue_data'),
+                                   'SICK'),
+                 max_num_examples=-1):  #pylint: disable=c0330
+        self._supported_segments = [
+            'test'
+        ]
+        assert segment in self._supported_segments, 'Unsupported segment: %s' % segment
+        path = os.path.join(root, '%s.tsv' % segment)
+        if segment in ['test']:
+            A_IDX, B_IDX, LABEL_IDX = 3, 4, 5
+            fields = [A_IDX, B_IDX, LABEL_IDX]
+        super(MNLIDataset, self).__init__(
+            path, num_discard_samples=1, fields=fields, label_field=2, max_num_examples=max_num_examples)
 
 class MNLIHansDataset(MNLIDataset):
     """Test datasets from

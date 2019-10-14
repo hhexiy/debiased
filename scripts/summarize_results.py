@@ -73,6 +73,10 @@ def parse_file(path, error_analysis):
             metric_name = 'mapped-accuracy'
         else:
             metric_name = 'accuracy'
+        if test_data.startswith('QQP'):
+            f1 = metrics['f1']
+        else:
+            f1 = -1.
         if additive == 0:
             acc = metrics[metric_name]
             additive = '0'
@@ -126,6 +130,7 @@ def parse_file(path, error_analysis):
             'model': model.upper(),
             'model_name': model_name,
             'acc': acc,
+            'f1': f1,
             'model_path': model_path,
             'eval_path': path,
            }
@@ -169,6 +174,10 @@ def parse_file(path, error_analysis):
                     'n-con': acc_report['non-contradiction']['f1-score'],
                     'avg': acc_report['macro avg']['f1-score'],
                     'acc_report': acc_report,
+                    })
+            elif error_analysis == 'qqp':
+                report.update({
+                    'f1': acc_report['macro avg']['f1-score']
                     })
             else:
                 report.update({
@@ -235,6 +244,10 @@ def main(args):
                ('con', 10, '.3f'),
                ('n-con', 10, '.3f'),
             ])
+    elif args.error_analysis == 'qqp':
+        columns.extend([
+                ('f1', 10, '.3f'),
+            ])
     elif args.error_analysis is not None :
         columns.extend([
                ('ent', 10, '.3f'),
@@ -260,7 +273,7 @@ def main(args):
     if args.aggregate_seeds and 'seed' in column_names:
         seed_idx = column_names.index('seed')
         seed_invariant_cols = column_names[:seed_idx]
-        agg_cols = ['acc', 'ent', 'n-ent']
+        agg_cols = ['acc', 'ent', 'n-ent', 'f1']
         res_groups = []
         for i, res in enumerate(all_res):
             val = [res[c] for c in seed_invariant_cols]

@@ -45,9 +45,10 @@ import pickle as pkl
 
 from .utils import read_args
 from .runner import *
+from .embedding_runner import EmbeddingRunner
 from .options import add_default_arguments, add_data_arguments, add_logging_arguments, \
     add_model_arguments, add_training_arguments, \
-    check_arguments
+    check_arguments, add_kde_arguments
 
 logger = logging.getLogger('nli')
 
@@ -62,6 +63,7 @@ def parse_args():
     add_logging_arguments(parser)
     add_model_arguments(parser)
     add_training_arguments(parser)
+    add_kde_arguments(parser)
     args = parser.parse_args()
     args.remove_cheat = eval(args.remove_cheat)
     args.fix_bert_weights = eval(args.fix_bert_weights)
@@ -111,6 +113,8 @@ def get_runner(args, model_args, task, output_dir=None):
             prev_runners.append(_prev_runner)
             prev_args.append(_prev_args)
         runner = get_additive_runner(core_runner[model_args.model_type], project=model_args.project, remove=model_args.remove)(task, output_dir, prev_runners, prev_args, args.exp_id)
+    elif args.kde:
+        runner = EmbeddingRunner(task, output_dir, args.exp_id)
     else:
         runner = core_runner[model_args.model_type](task, output_dir, args.exp_id)
     return runner

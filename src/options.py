@@ -102,6 +102,13 @@ def add_training_arguments(parser):
     group.add_argument('--early-stop', action='store_true',
                         help='can stop early before max number of epochs is reached')
 
+def add_kde_arguments(parser):
+    group = parser.add_argument_group('Kernel Density Estimation')
+    group.add_argument('--kde', action='store_true',
+                        help='run density estimation by kNN in the embedding space')
+    group.add_argument('--k', type=int, default=5,
+                        help='number if nearest neighbors to return')
+
 def check_arguments(args):
     if args.superficial == 'handcrafted':
         assert args.model_type == 'cbow'

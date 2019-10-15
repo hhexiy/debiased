@@ -156,7 +156,10 @@ class NLIRunner(Runner):
         train_dataset = self.preprocess_dataset(args.train_split, args.cheat, args.remove_cheat, args.remove, args.max_num_examples, ctx)
         dev_dataset = self.preprocess_dataset(args.test_split, args.cheat, args.remove_cheat, args.remove, args.max_num_examples, ctx)
 
-        model, vocab = self.build_model(args, args, ctx, train_dataset)
+        if args.init_from:
+            model, vocab = self.load_model(args, args, args.init_from, ctx)
+        else:
+            model, vocab = self.build_model(args, args, ctx, train_dataset)
         self.dump_vocab(vocab)
         self.vocab = vocab
 
@@ -429,11 +432,6 @@ class BERTNLIRunner(NLIRunner):
         else:
             model = BERTClassifier(bert, num_classes=num_classes, dropout=model_args.dropout)
             self.tokenizer = BERTTokenizer(vocabulary, lower=do_lower_case)
-
-        if args.init_from:
-            model.load_parameters(os.path.join(
-                args.init_from, 'checkpoints', 'valid_best.params'), ctx=ctx,
-                ignore_extra=True)
 
         return model, vocabulary
 

@@ -14,7 +14,10 @@ logger = logging.getLogger('nli')
 class EmbeddingRunner(BERTNLIRunner):
     def _embed(self, model, inputs):
         if self.is_roberta:
-            pooler_out = model.roberta(*inputs)
+            seq_out = model.roberta(*inputs)
+            outputs = seq_out.slice(begin=(0, 0, 0), end=(None, 1, None))
+            outputs = outputs.reshape(shape=(-1, model.roberta._units))
+            pooler_out = outputs
         else:
             _, pooler_out = model.bert(*inputs)
         return pooler_out

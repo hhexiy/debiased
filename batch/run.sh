@@ -6,8 +6,8 @@
 #SBATCH --cpus-per-task=1
 #SBATCH --time=48:00:00
 #SBATCH --mem=10GB
-#SBATCH --output=scratch/log/slurm_%j.out
+#SBATCH --output=scratch/slurm/slurm_%j.out
 
-source activate gluonnlp
+source activate debiased
 cd ~/projects/debiased
 $command

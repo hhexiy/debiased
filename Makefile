@@ -9,7 +9,7 @@ test-split=dev
 train-split=train
 num_ex=-1
 cheat_rate=-1
-mxnet_home=/scratch/hh2291/.mxnet
+mxnet_home=~/hhe/.mxnet
 wdrop=0
 drop=0.1
 nepochs=3
@@ -31,10 +31,10 @@ glue-data:
 	python scripts/download_glue_data.py --tasks $(glue_task) --data_dir data/glue_data
 
 train-embed:
-	MXNET_HOME=$(mxnet_home) MXNET_GPU_MEM_POOL_TYPE=Round GLUE_DIR=data/glue_data python -m src.main --task-name $(task) --eval-batch-size 128 --gpu-id $(gpu) --output-dir output/$(exp) --max-num-examples $(num_ex) --seed $(seed) --train-split $(train-split) --init-from $(from) --kde
+	MXNET_HOME=$(mxnet_home) MXNET_GPU_MEM_POOL_TYPE=Round GLUE_DIR=data/glue_data python -m src.main --task-name $(task) --eval-batch-size 512 --gpu-id $(gpu) --output-dir output/$(exp) --max-num-examples $(num_ex) --seed $(seed) --train-split $(train-split) --init-from $(from) --kde
 
 test-embed:
-	MXNET_HOME=$(mxnet_home) MXNET_GPU_MEM_POOL_TYPE=Round GLUE_DIR=data/glue_data python -m src.main --task-name $(task) --eval-batch-size 128 --gpu-id $(gpu) --output-dir output/$(exp) --dropout 0.1 --test-split $(test-split) --max-num-examples $(num_ex) --seed $(seed) --init-from $(from) --kde --mode test
+	MXNET_HOME=$(mxnet_home) MXNET_GPU_MEM_POOL_TYPE=Round GLUE_DIR=data/glue_data python -m src.main --task-name $(task) --eval-batch-size 512 --gpu-id $(gpu) --output-dir output/$(exp) --dropout 0.1 --test-split $(test-split) --max-num-examples $(num_ex) --seed $(seed) --init-from $(from) --kde --mode test
 
 train-custom-bert:
 	MXNET_HOME=$(mxnet_home) MXNET_GPU_MEM_POOL_TYPE=Round GLUE_DIR=data/glue_data python -m src.main --task-name $(task) --batch-size $(bs) --optimizer bertadam --epochs $(nepochs) --gpu-id $(gpu) --lr $(lr) --log-interval $(interval) --output-dir output/$(exp) --dropout 0.1 --test-split $(test-split) --cheat $(cheat_rate) --max-num-examples $(num_ex) --model-type bert --model-params $(params) --fix-bert-weights $(fix) --train-split $(train-split) --seed $(seed) 

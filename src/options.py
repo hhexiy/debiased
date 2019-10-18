@@ -68,6 +68,8 @@ def add_model_arguments(parser):
                         help='directory to load model')
     group.add_argument('--use-last', action='store_true',
                         help='use the last model instead of the best modal on the dev set')
+    group.add_argument('--use-init', action='store_true',
+                        help='use random init instead of the best modal on the dev set')
     group.add_argument('--additive-mode', choices=['prev', 'last', 'all'], default='all',
                         help='use which classifier')
     group.add_argument('--word-dropout', type=float, default=0,

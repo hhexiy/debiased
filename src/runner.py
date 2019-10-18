@@ -180,11 +180,14 @@ class NLIRunner(Runner):
         vocab = nlp.Vocab.from_json(
             open(os.path.join(path, 'vocab.jsons')).read())
         model, _ = self.build_model(args, model_args, ctx, vocab=vocab)
-        params_file = 'last.params' if args.use_last else 'valid_best.params'
-        logger.info('load model from {}'.format(os.path.join(
-            path, 'checkpoints', params_file)))
-        model.load_parameters(os.path.join(
-            path, 'checkpoints', params_file), ctx=ctx)
+        params_file = 'last.params' if args.use_last else None if args.use_init else 'valid_best.params'
+        if params_file is None:
+            self.initialize_model(model_args, model, ctx)
+        else:
+            logger.info('load model from {}'.format(os.path.join(
+                path, 'checkpoints', params_file)))
+            model.load_parameters(os.path.join(
+                path, 'checkpoints', params_file), ctx=ctx)
         return model, vocab
 
     def run_test(self, args, ctx, dataset=None):

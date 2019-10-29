@@ -30,6 +30,9 @@ glue_task=MNLI
 glue-data:
 	python scripts/download_glue_data.py --tasks $(glue_task) --data_dir data/glue_data
 
+train-init-embed:
+	MXNET_HOME=$(mxnet_home) MXNET_GPU_MEM_POOL_TYPE=Round GLUE_DIR=data/glue_data python -m src.main --task-name $(task) --eval-batch-size 512 --gpu-id $(gpu) --output-dir output/$(exp) --max-num-examples $(num_ex) --seed $(seed) --train-split $(train-split) --init-from $(from) --kde --use-init
+
 train-embed:
 	MXNET_HOME=$(mxnet_home) MXNET_GPU_MEM_POOL_TYPE=Round GLUE_DIR=data/glue_data python -m src.main --task-name $(task) --eval-batch-size 512 --gpu-id $(gpu) --output-dir output/$(exp) --max-num-examples $(num_ex) --seed $(seed) --train-split $(train-split) --init-from $(from) --kde
 

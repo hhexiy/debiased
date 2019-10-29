@@ -182,6 +182,7 @@ class NLIRunner(Runner):
         model, _ = self.build_model(args, model_args, ctx, vocab=vocab)
         params_file = 'last.params' if args.use_last else None if args.use_init else 'valid_best.params'
         if params_file is None:
+            logger.info('using randomly initialized model with seed={}!'.format(model_args.seed))
             self.initialize_model(model_args, model, ctx)
         else:
             logger.info('load model from {}'.format(os.path.join(

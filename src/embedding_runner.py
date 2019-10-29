@@ -91,6 +91,7 @@ class EmbeddingRunner(BERTNLIRunner):
         model, self.vocab = self.load_model(args, model_args, kde_args.init_from, ctx)
         test_dataset = self.preprocess_dataset(args.test_split, args.cheat, args.remove_cheat, args.remove, args.max_num_examples, ctx)
         embeddings, ids, labels = self.embed(args, model, test_dataset, ctx)
+        np.save(os.path.join(self.outdir, 'ids'), ids)
         label_map = {label: name for label, name in enumerate(self.task.get_labels())}
 
         logger.info('loading models')

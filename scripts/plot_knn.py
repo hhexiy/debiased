@@ -11,6 +11,7 @@ import matplotlib.pylab as plt
 from joblib import dump, load
 from collections import defaultdict
 
+from src.task import tasks
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -21,6 +22,11 @@ def parse_args():
 def get_model_config(model_path):
     res = json.load(open('{}/report.json'.format(model_path)))['config']
     return res
+
+def load_dataset(config, split):
+    dataset = tasks[config['task_name']](config[split])
+    data = {d[0]: d for d in dataset}
+    return data
 
 def parse_file(path):
     try:
@@ -50,8 +56,13 @@ def parse_file(path):
             'model_path': knn_model_path,
             'eval_path': path,
             'knns': knns,
+            'ids': np.load(os.path.join(os.path.dirname(path), 'ids.npy')),
+            'train_dataset': load_dataset(knn_model_config, 'train_split'),
+            'test_dataset': load_dataset(config, 'test_split'),
            }
     constraints = {
+            lambda r: r['test_data'] == 'MNLI-hans-lexical_overlap',
+            lambda r: r['train_data'] == 'MNLI-train',
             }
     for c in constraints:
         if not c(report):
@@ -64,15 +75,20 @@ def parse_file(path):
 def _plot_hist(res, name):
     num_cols = max([len(r['knns']) for r in res])
     num_rows = len(res)
+    print(name)
     print(num_cols, num_rows)
     fig, axs = plt.subplots(num_rows, num_cols)
     for i, r in enumerate(res):
         for j, (label_name, _knns) in enumerate(r['knns'].items()):
             max_dists = np.max(_knns[0], axis=1)
             r['knn-{}'.format(label_name)] = float(np.mean(max_dists).reshape(-1))
-            axs[i, j].hist(max_dists)
-            axs[i, j].set_title('{}-{}'.format(r['test_data'], label_name))
-    plt.savefig('{}.pdf'.format(name))
+            #if num_rows == 1:
+            #    axs[j].hist(max_dists)
+            #    axs[j].set_title('{}-{}'.format(r['test_data'], label_name))
+            #else:
+            #    axs[i, j].hist(max_dists)
+            #    axs[i, j].set_title('{}-{}'.format(r['test_data'], label_name))
+    #plt.savefig('{}.pdf'.format(name))
 
 def plot_hists(all_res):
     groups = defaultdict(list)
@@ -81,6 +97,27 @@ def plot_hists(all_res):
         groups[knn_model].append(r)
     for group_name, res in groups.items():
         _plot_hist(res, group_name)
+
+def _print_knns(res, name):
+    assert len(res) == 1
+    r = res[0]
+    with open('{}.examples.txt'.format(name), 'w') as fout:
+        for id_, knn_ids in zip(r['ids'], r['knns']['all'][1]):
+            test_example = r['test_dataset'][id_]
+            train_knn_examples = [r['train_dataset'][i] for i in knn_ids]
+            fout.write('{}\t{}\t{}\n'.format(*test_example))
+            fout.write('-'*50 + '\n')
+            for e in train_knn_examples:
+                fout.write('{}\t{}\t{}\n'.format(*e))
+            fout.write('-'*50 + '\n')
+
+def print_knns(all_res):
+    groups = defaultdict(list)
+    for r in all_res:
+        knn_model = '{}-{}'.format(r['train_data'], r['model'])
+        groups[knn_model].append(r)
+    for group_name, res in groups.items():
+        _print_knns(res, group_name)
 
 def main(args):
     files = []
@@ -102,6 +139,7 @@ def main(args):
 
     all_res = [r for r in all_res if r['status'] == 'success']
     plot_hists(all_res)
+    print_knns(all_res)
 
     knn_dists = [k for k in all_res[0].keys() if k.startswith('knn-')]
     columns = [

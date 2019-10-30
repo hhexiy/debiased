@@ -77,7 +77,8 @@ def split_examples(examples, criteria, train_size):
            [e[1] for e in test_examples]
 
 def write_examples(examples, header, path):
-    header = [h[0] for h in sorted(header.items(), key=lambda x: x[1])]
+    # Only write gold label because dev and train have different number of labels
+    header = [h[0] for h in sorted(header.items(), key=lambda x: x[1]) if not (h[0].startswith('label'))]
     with open(path, 'w') as fout:
         fout.write('\t'.join(header) + '\n')
         for e in examples:

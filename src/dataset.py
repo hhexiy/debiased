@@ -501,7 +501,7 @@ class MNLILenDataset(MNLIDataset):
         assert segment in self._supported_segments, 'Unsupported segment: %s' % segment
 
         path = glob.glob(os.path.join(root, '{}.tsv'.format(segment)))
-        A_IDX, B_IDX, LABEL_IDX = 5, 6, 0
+        A_IDX, B_IDX, LABEL_IDX = 8, 9, 15
 
         fields = [A_IDX, B_IDX, LABEL_IDX]
         super(MNLIDataset, self).__init__(

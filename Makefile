@@ -20,6 +20,9 @@ fix=False
 model_name=book_corpus_wiki_en_uncased
 bert=bert
 
+mnli-length:
+	python scripts/resplit_data.py --data-paths data/glue_data/MNLI/train.tsv data/glue_data/MNLI/dev_matched.tsv --out-dir data/glue_data/MNLI-length --task nli --criteria length
+
 hans-data:
 	git clone https://github.com/tommccoy1/hans.git
 	mkdir -p data/glue_data/MNLI-hans

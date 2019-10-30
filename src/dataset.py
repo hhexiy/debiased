@@ -491,6 +491,22 @@ class MNLIDataset(GLUEDataset):
         """Get metrics Accuracy"""
         return Accuracy()
 
+class MNLILenDataset(MNLIDataset):
+    def __init__(self,
+                 segment='train',
+                 root=os.path.join(os.getenv('GLUE_DIR', 'glue_data'),
+                                   'MNLI-length'),
+                 max_num_examples=-1):  #pylint: disable=c0330
+        self._supported_segments = [segment for segment in ('train', 'dev', 'test')]
+        assert segment in self._supported_segments, 'Unsupported segment: %s' % segment
+
+        path = glob.glob(os.path.join(root, '{}.tsv'.format(segment)))
+        A_IDX, B_IDX, LABEL_IDX = 5, 6, 0
+
+        fields = [A_IDX, B_IDX, LABEL_IDX]
+        super(MNLIDataset, self).__init__(
+            path, num_discard_samples=1, fields=fields, label_field=2, max_num_examples=max_num_examples)
+
 @register(segment=['train', 'dev', 'test'])
 class SNLIDataset(GLUEDataset):
     """Task class for Multi-Genre Natural Language Inference

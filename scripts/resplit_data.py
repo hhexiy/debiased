@@ -10,6 +10,7 @@ def parse_args():
     parser.add_argument('--out-dir')
     parser.add_argument('--task', choices=['nli'])
     parser.add_argument('--criteria', choices=['length'])
+    parser.add_argument('--num-finetune', type=int, default=0)
     args = parser.parse_args()
     return args
 

@@ -1,9 +1,9 @@
 #task=QQP-wang
 #test_split=dev
 #task_dir=qqp
-task=MNLI-length
-test_split=dev
-task_dir=mnli-length
+task=MNLI-no-subset
+test_split=dev_matched
+task_dir=mnli-no-subset
 for seed in 2 101 345 9 99; do
 #for seed in 345; do
     #for model_name in book_corpus_wiki_en_uncased openwebtext_book_corpus_wiki_en_uncased; do

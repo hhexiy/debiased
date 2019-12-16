@@ -135,7 +135,7 @@ def parse_file(path, error_analysis):
             'eval_path': path,
            }
     constraints = {
-            #lambda r: r['mch'] != -1,
+            lambda r: r['model_params'] == 'pretrained',
             #lambda r: r['tch'] == 0,
             #lambda r: r['sup'] == 0,
             #lambda r: r['add'] in ('hand', 'hypo', 'cbow', '0'),
@@ -232,7 +232,7 @@ def main(args):
                #('wdrop', 5, '.1f'),
                ('acc', 10, '.3f'),
                #('model_path', 10, 's'),
-               ('eval_path', 10, 's'),
+               #('eval_path', 10, 's'),
               ]
     if args.error_analysis == 'hans':
         columns.extend([

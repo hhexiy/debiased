@@ -507,6 +507,28 @@ class MNLILenDataset(MNLIDataset):
         super(MNLIDataset, self).__init__(
             path, num_discard_samples=1, fields=fields, label_field=2, max_num_examples=max_num_examples)
 
+class MNLINoSubsetDataset(MNLIDataset):
+    def __init__(self,
+                 segment='train',
+                 root=os.path.join(os.getenv('GLUE_DIR', 'glue_data'),
+                                   'MNLI-no-subset'),
+                 max_num_examples=-1):  #pylint: disable=c0330
+        self._supported_segments = [segment for segment in ('train', 'dev_matched', 'dev_mismatched')]
+        assert segment in self._supported_segments, 'Unsupported segment: %s' % segment
+
+        path = os.path.join(root, '%s.tsv' % segment)
+        A_IDX, B_IDX = 8, 9
+        if segment in ['dev_matched', 'dev_mismatched']:
+            LABEL_IDX = 15
+            fields = [A_IDX, B_IDX, LABEL_IDX]
+            label_field = 2
+        elif segment == 'train':
+            LABEL_IDX = 11
+            fields = [A_IDX, B_IDX, LABEL_IDX]
+            label_field = 2
+        super(MNLIDataset, self).__init__(
+            path, num_discard_samples=1, fields=fields, label_field=label_field, max_num_examples=max_num_examples)
+
 @register(segment=['train', 'dev', 'test'])
 class SNLIDataset(GLUEDataset):
     """Task class for Multi-Genre Natural Language Inference

@@ -1128,6 +1128,7 @@ class ClassificationTransform(object):
         return batchify_fn
 
 
+# SNLI -> NLI
 class SNLICheatTransform(object):
     def __init__(self, labels, rate=1., remove=False):
         self.rate = rate
@@ -1150,6 +1151,7 @@ class SNLICheatTransform(object):
         self.rng.seed(42)
 
 
+# TODO: SNLI -> NLI
 class SNLIWordDropTransform(object):
     def __init__(self, example_augment_prob=0., rate=0., region=('premise', 'hypothesis'), tokenizer=str.split):
         self.example_augment_prob = example_augment_prob

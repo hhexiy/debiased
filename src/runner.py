@@ -441,9 +441,13 @@ class BERTNLIRunner(NLIRunner):
         return model, vocabulary
 
     def build_model_transformer(self, max_len, example_augment_prob=0, word_mask_prob=0):
-        trans = MaskedBERTDatasetTransform(
-            self.tokenizer, max_len, vocab=self.vocab, class_labels=self.labels, pad=False, pair=True,
-            example_augment_prob=example_augment_prob, word_mask_prob=word_mask_prob)
+        if word_mask_prob > 0:
+            trans = MaskedBERTDatasetTransform(
+                self.tokenizer, max_len, vocab=self.vocab, class_labels=self.labels, pad=False, pair=True,
+                example_augment_prob=example_augment_prob, word_mask_prob=word_mask_prob)
+        else:
+            trans = BERTDatasetTransform(
+                self.tokenizer, max_len, vocab=self.vocab, class_labels=self.labels, pad=False, pair=True)
         return trans
 
     def prepare_data(self, data, ctx):

@@ -47,7 +47,7 @@ from .utils import read_args
 from .runner import *
 from .embedding_runner import EmbeddingRunner
 from .options import add_default_arguments, add_data_arguments, add_logging_arguments, \
-    add_model_arguments, add_training_arguments, \
+    add_model_arguments, add_training_arguments, add_augmentation_arguments, \
     check_arguments, add_kde_arguments
 
 logger = logging.getLogger('nli')
@@ -63,10 +63,9 @@ def parse_args():
     add_logging_arguments(parser)
     add_model_arguments(parser)
     add_training_arguments(parser)
+    add_augmentation_arguments(parser)
     add_kde_arguments(parser)
     args = parser.parse_args()
-    args.remove_cheat = eval(args.remove_cheat)
-    args.fix_bert_weights = eval(args.fix_bert_weights)
     check_arguments(args)
     return args
 

@@ -1,3 +1,15 @@
+import argparse
+
+def str2bool(v):
+    if isinstance(v, bool):
+       return v
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
+
 def add_default_arguments(parser):
     parser.add_argument('--gpu-id', type=int, default=0,
                         help='GPU id (-1 means CPU)')
@@ -24,7 +36,7 @@ def add_data_arguments(parser):
                         help='project out previous models')
     group.add_argument('--remove', action='store_true',
                         help='remove examples that are predicted correctly by previous models')
-    group.add_argument('--remove-cheat', choices=['True', 'False'], default='False',
+    group.add_argument('--remove-cheat', type=str2bool, default=False,
                         help='remove examples where cheating features are enabled')
     group.add_argument('--cheat', type=float, default=-1,
                         help='percentage of training data where value of the cheating feature is the groundtruth label. -1 means no cheating features is added at all.')
@@ -67,11 +79,14 @@ def add_model_arguments(parser):
     group.add_argument('--init-from',
                         help='directory to load model')
     group.add_argument('--use-last', action='store_true',
-                        help='use the last model instead of the best modal on the dev set')
+                        help='use the last model instead of the best model on the dev set')
     group.add_argument('--use-init', action='store_true',
-                        help='use random init instead of the best modal on the dev set')
+                        help='use random init instead of the best model on the dev set')
     group.add_argument('--additive-mode', choices=['prev', 'last', 'all'], default='all',
                         help='use which classifier')
+
+def add_augmentation_arguments(parser):
+    group = parser.add_argument_group('Augmentation')
     group.add_argument('--example-augment-prob', type=float, default=0.,
                         help='probability to augment an example')
     group.add_argument('--word-mask', type=float, default=0.,
@@ -80,6 +95,8 @@ def add_model_arguments(parser):
                         help='probability to dropout a word in an example')
     group.add_argument('--word-dropout-region', nargs='+', default=None,
                         help='where to dropout words. None means everywhere.')
+    group.add_argument('--augment-by-epoch', type=str2bool, default=False,
+                        help='should data augmentation (e.g. word dropout) be applied every epoch')
 
 def add_training_arguments(parser):
     group = parser.add_argument_group('Training')
@@ -97,14 +114,12 @@ def add_training_arguments(parser):
                         help='l2 regularization weight')
     group.add_argument('--fix-word-embedding', action='store_true',
                         help='fix pretrained word embedding during training')
-    group.add_argument('--fix-bert-weights', default='False',
+    group.add_argument('--fix-bert-weights', type=str2bool, default=False,
                         help='fix pretrained BERT weights')
     group.add_argument('--optimizer', default='adam',
                         help='optimization algorithm')
     group.add_argument('--warmup-ratio', type=float, default=0.1,
                         help='ratio of warmup steps used in NOAM\'s stepsize schedule')
-    group.add_argument('--augment-by-epoch', action='store_true',
-                        help='should data augmentation (e.g. word dropout) be applied every epoch')
     group.add_argument('--early-stop', action='store_true',
                         help='can stop early before max number of epochs is reached')
 

@@ -232,7 +232,7 @@ def main(args):
                #('wdrop', 5, '.1f'),
                ('acc', 10, '.3f'),
                #('model_path', 10, 's'),
-               #('eval_path', 10, 's'),
+               ('eval_path', 10, 's'),
               ]
     if args.error_analysis == 'hans':
         columns.extend([

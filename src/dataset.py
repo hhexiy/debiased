@@ -1209,7 +1209,8 @@ class SNLICheatTransform(object):
 
 
 class SNLIWordDropTransform(object):
-    def __init__(self, rate=0., region=('premise', 'hypothesis'), tokenizer=str.split):
+    def __init__(self, example_augment_prob=0., rate=0., region=('premise', 'hypothesis'), tokenizer=str.split):
+        self.example_augment_prob = example_augment_prob
         self.rate = rate
         self.region = region
         self.tokenizer = tokenizer
@@ -1220,12 +1221,13 @@ class SNLIWordDropTransform(object):
         return seq
 
     def __call__(self, line):
-        idx, premise, hypothesis, label = line[0], line[1], line[2], line[3]
-        if 'premise' in self.region:
-            premise = ' '.join(self.dropout(self.tokenizer(premise)))
-        if 'hypothesis' in self.region:
-            hypothesis = ' '.join(self.dropout(self.tokenizer(hypothesis)))
-        line = [idx, premise, hypothesis, label]
+        if np.random.uniform() < self.example_augment_prob:
+            idx, premise, hypothesis, label = line[0], line[1], line[2], line[3]
+            if 'premise' in self.region:
+                premise = ' '.join(self.dropout(self.tokenizer(premise)))
+            if 'hypothesis' in self.region:
+                hypothesis = ' '.join(self.dropout(self.tokenizer(hypothesis)))
+            line = [idx, premise, hypothesis, label]
         return line
 
 

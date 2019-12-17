@@ -72,8 +72,10 @@ def add_model_arguments(parser):
                         help='use random init instead of the best modal on the dev set')
     group.add_argument('--additive-mode', choices=['prev', 'last', 'all'], default='all',
                         help='use which classifier')
-    group.add_argument('--word-dropout', type=float, default=0,
-                        help='word dropout rate.')
+    group.add_argument('--example-augment-prob', type=float, default=0.,
+                        help='probability to augment an example')
+    group.add_argument('--word-dropout', type=float, default=0.,
+                        help='probability to dropout a word in an example')
     group.add_argument('--word-dropout-region', nargs='+', default=None,
                         help='where to dropout words. None means everywhere.')
 
@@ -99,8 +101,8 @@ def add_training_arguments(parser):
                         help='optimization algorithm')
     group.add_argument('--warmup-ratio', type=float, default=0.1,
                         help='ratio of warmup steps used in NOAM\'s stepsize schedule')
-    group.add_argument('--noising-by-epoch', action='store_true',
-                        help='should data noising (e.g. word dropout) be applied every epoch')
+    group.add_argument('--augment-by-epoch', action='store_true',
+                        help='should data augmentation (e.g. word dropout) be applied every epoch')
     group.add_argument('--early-stop', action='store_true',
                         help='can stop early before max number of epochs is reached')
 

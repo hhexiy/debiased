@@ -163,7 +163,7 @@ class NLIRunner(Runner):
         self.dump_vocab(vocab)
         self.vocab = vocab
 
-        self.train(args, model, train_dataset, dev_dataset, ctx, args.noising_by_epoch)
+        self.train(args, model, train_dataset, dev_dataset, ctx, args.augment_by_epoch)
 
     def dump_predictions(self, dataset, preds, ids):
         ids = ids.asnumpy().astype('int32')
@@ -212,17 +212,17 @@ class NLIRunner(Runner):
             logger.info('cheating rate: {}'.format(cheat_rate))
             return SNLICheatTransform(self.task.get_labels(), rate=cheat_rate, remove=remove_cheat)
 
-    def build_data_transformer(self, max_len, word_dropout, word_dropout_region):
+    def build_data_transformer(self, max_len, example_augment_prob, word_dropout, word_dropout_region):
         trans_list = []
         if word_dropout > 0:
             if word_dropout_region is None:
                 word_dropout_region = ('premise', 'hypothesis')
-            trans_list.append(SNLIWordDropTransform(rate=word_dropout, region=word_dropout_region))
+            trans_list.append(SNLIWordDropTransform(example_augment_prob=example_augment_prob, rate=word_dropout, region=word_dropout_region))
         trans_list.append(self.build_model_transformer(max_len))
         return [x for x in trans_list if x]
 
-    def build_dataset(self, data, max_len, word_dropout=0, word_dropout_region=None, ctx=None):
-        trans_list = self.build_data_transformer(max_len, word_dropout, word_dropout_region)
+    def build_dataset(self, data, max_len, example_augment_prob=0, word_dropout=0, word_dropout_region=None, ctx=None):
+        trans_list = self.build_data_transformer(max_len, example_augment_prob, word_dropout, word_dropout_region)
         dataset = data
         logger.info('processing {} examples'.format(len(dataset)))
         start = time.time()
@@ -235,8 +235,8 @@ class NLIRunner(Runner):
         batchify_fn = trans.get_batcher()
         return dataset, data_lengths, batchify_fn
 
-    def build_data_loader(self, dataset, batch_size, max_len, test=False, word_dropout=0, word_dropout_region=None, ctx=None):
-        dataset, data_lengths, batchify_fn = self.build_dataset(dataset, max_len, word_dropout, word_dropout_region, ctx=ctx)
+    def build_data_loader(self, dataset, batch_size, max_len, test=False, example_augment_prob=0, word_dropout=0, word_dropout_region=None, ctx=None):
+        dataset, data_lengths, batchify_fn = self.build_dataset(dataset, max_len, example_augment_prob=example_augment_prob, word_dropout=word_dropout, word_dropout_region=word_dropout_region, ctx=ctx)
 
         batch_sampler = nlp.data.FixedBucketSampler(lengths=data_lengths,
                                                     batch_size=batch_size,
@@ -284,7 +284,7 @@ class NLIRunner(Runner):
         else:
             raise ValueError
 
-    def train(self, args, model, train_dataset, dev_dataset, ctx, data_noising_by_epoch):
+    def train(self, args, model, train_dataset, dev_dataset, ctx, data_augment_by_epoch):
         task = self.task
         loss_function = self.loss_function
         metric = task.get_metric()
@@ -317,8 +317,8 @@ class NLIRunner(Runner):
         checkpoints_dir = get_dir(os.path.join(self.outdir, 'checkpoints'))
 
         logger.info('building data loader')
-        train_data = self.build_data_loader(train_dataset, args.batch_size, args.max_len, test=False, word_dropout=args.word_dropout, word_dropout_region=args.word_dropout_region, ctx=ctx)
-        dev_data = self.build_data_loader(dev_dataset, args.batch_size, args.max_len, test=True, word_dropout=0, ctx=ctx)
+        train_data = self.build_data_loader(train_dataset, args.batch_size, args.max_len, test=False, example_augment_prob=args.example_augment_prob, word_dropout=args.word_dropout, word_dropout_region=args.word_dropout_region, ctx=ctx)
+        dev_data = self.build_data_loader(dev_dataset, args.batch_size, args.max_len, test=True, ctx=ctx)
 
         logger.info('start training')
         for epoch_id in range(args.epochs):
@@ -326,8 +326,8 @@ class NLIRunner(Runner):
             step_loss = 0
             tic = time.time()
 
-            if data_noising_by_epoch and epoch_id > 0:
-                train_data = self.build_data_loader(train_dataset, args.batch_size, args.max_len, test=False, word_dropout=args.word_dropout, word_dropout_region=args.word_dropout_region, ctx=ctx)
+            if data_augment_by_epoch and epoch_id > 0:
+                train_data = self.build_data_loader(train_dataset, args.batch_size, args.max_len, test=False, example_augment_prob=args.example_augment_prob, word_dropout=args.word_dropout, word_dropout_region=args.word_dropout_region, ctx=ctx)
 
             for batch_id, seqs in enumerate(train_data):
                 step_num += 1
@@ -654,8 +654,8 @@ def get_additive_runner(base, project=False, remove=False):
             # id_, premise, hypothesis, label
             return example
 
-        def build_dataset(self, data, max_len, word_dropout=0, word_dropout_region=None, ctx=None):
-            trans_list = self.build_data_transformer(max_len, word_dropout, word_dropout_region)
+        def build_dataset(self, data, max_len, example_augment_prob=0, word_dropout=0, word_dropout_region=None, ctx=None):
+            trans_list = self.build_data_transformer(max_len, example_augment_prob, word_dropout, word_dropout_region)
             prev_scores = [x[0] for x in data]
             dataset = gluon.data.SimpleDataset([x[1] for x in data])
             logger.info('processing {} examples'.format(len(dataset)))

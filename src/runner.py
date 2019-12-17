@@ -25,7 +25,7 @@ from .model.hex import ProjectClassifier
 from .model.cbow import NLICBOWClassifier, NLIHandcraftedClassifier
 from .model.decomposable_attention import DecomposableAttentionClassifier
 from .model.esim import ESIMClassifier
-from .dataset import BERTDatasetTransform, \
+from .dataset import BERTDatasetTransform, MaskedBERTDatasetTransform, \
     NLIHypothesisTransform, SNLICheatTransform, SNLIWordDropTransform, \
     CBOWTransform, NLIHandcraftedTransform, DATransform, ESIMTransform
 from .utils import *
@@ -212,17 +212,18 @@ class NLIRunner(Runner):
             logger.info('cheating rate: {}'.format(cheat_rate))
             return SNLICheatTransform(self.task.get_labels(), rate=cheat_rate, remove=remove_cheat)
 
-    def build_data_transformer(self, max_len, example_augment_prob, word_dropout, word_dropout_region):
+    def build_data_transformer(self, max_len, example_augment_prob, word_mask, word_dropout, word_dropout_region):
         trans_list = []
         if word_dropout > 0:
             if word_dropout_region is None:
                 word_dropout_region = ('premise', 'hypothesis')
             trans_list.append(SNLIWordDropTransform(example_augment_prob=example_augment_prob, rate=word_dropout, region=word_dropout_region))
-        trans_list.append(self.build_model_transformer(max_len))
+        # TODO: separate augment transformer from model transformer
+        trans_list.append(self.build_model_transformer(max_len, example_augment_prob=example_augment_prob, word_mask_prob=word_mask))
         return [x for x in trans_list if x]
 
-    def build_dataset(self, data, max_len, example_augment_prob=0, word_dropout=0, word_dropout_region=None, ctx=None):
-        trans_list = self.build_data_transformer(max_len, example_augment_prob, word_dropout, word_dropout_region)
+    def build_dataset(self, data, max_len, example_augment_prob=0, word_mask=0, word_dropout=0, word_dropout_region=None, ctx=None):
+        trans_list = self.build_data_transformer(max_len, example_augment_prob, word_mask, word_dropout, word_dropout_region)
         dataset = data
         logger.info('processing {} examples'.format(len(dataset)))
         start = time.time()
@@ -235,8 +236,8 @@ class NLIRunner(Runner):
         batchify_fn = trans.get_batcher()
         return dataset, data_lengths, batchify_fn
 
-    def build_data_loader(self, dataset, batch_size, max_len, test=False, example_augment_prob=0, word_dropout=0, word_dropout_region=None, ctx=None):
-        dataset, data_lengths, batchify_fn = self.build_dataset(dataset, max_len, example_augment_prob=example_augment_prob, word_dropout=word_dropout, word_dropout_region=word_dropout_region, ctx=ctx)
+    def build_data_loader(self, dataset, batch_size, max_len, test=False, example_augment_prob=0, word_mask=0, word_dropout=0, word_dropout_region=None, ctx=None):
+        dataset, data_lengths, batchify_fn = self.build_dataset(dataset, max_len, example_augment_prob=example_augment_prob, word_mask=word_mask, word_dropout=word_dropout, word_dropout_region=word_dropout_region, ctx=ctx)
 
         batch_sampler = nlp.data.FixedBucketSampler(lengths=data_lengths,
                                                     batch_size=batch_size,
@@ -317,7 +318,7 @@ class NLIRunner(Runner):
         checkpoints_dir = get_dir(os.path.join(self.outdir, 'checkpoints'))
 
         logger.info('building data loader')
-        train_data = self.build_data_loader(train_dataset, args.batch_size, args.max_len, test=False, example_augment_prob=args.example_augment_prob, word_dropout=args.word_dropout, word_dropout_region=args.word_dropout_region, ctx=ctx)
+        train_data = self.build_data_loader(train_dataset, args.batch_size, args.max_len, test=False, example_augment_prob=args.example_augment_prob, word_mask=args.word_mask, word_dropout=args.word_dropout, word_dropout_region=args.word_dropout_region, ctx=ctx)
         dev_data = self.build_data_loader(dev_dataset, args.batch_size, args.max_len, test=True, ctx=ctx)
 
         logger.info('start training')
@@ -327,7 +328,7 @@ class NLIRunner(Runner):
             tic = time.time()
 
             if data_augment_by_epoch and epoch_id > 0:
-                train_data = self.build_data_loader(train_dataset, args.batch_size, args.max_len, test=False, example_augment_prob=args.example_augment_prob, word_dropout=args.word_dropout, word_dropout_region=args.word_dropout_region, ctx=ctx)
+                train_data = self.build_data_loader(train_dataset, args.batch_size, args.max_len, test=False, example_augment_prob=args.example_augment_prob, word_mask=args.word_mask, word_dropout=args.word_dropout, word_dropout_region=args.word_dropout_region, ctx=ctx)
 
             for batch_id, seqs in enumerate(train_data):
                 step_num += 1
@@ -439,9 +440,10 @@ class BERTNLIRunner(NLIRunner):
 
         return model, vocabulary
 
-    def build_model_transformer(self, max_len):
-        trans = BERTDatasetTransform(
-            self.tokenizer, max_len, vocab=self.vocab, class_labels=self.labels, pad=False, pair=True)
+    def build_model_transformer(self, max_len, example_augment_prob=0, word_mask_prob=0):
+        trans = MaskedBERTDatasetTransform(
+            self.tokenizer, max_len, vocab=self.vocab, class_labels=self.labels, pad=False, pair=True,
+            example_augment_prob=example_augment_prob, word_mask_prob=word_mask_prob)
         return trans
 
     def prepare_data(self, data, ctx):
@@ -468,7 +470,7 @@ class HypothesisNLIRunner(BERTNLIRunner):
         super().__init__(task, runs_dir, run_id)
         self.feature = feature
 
-    def build_model_transformer(self, max_len):
+    def build_model_transformer(self, max_len, example_augment_prob=0, word_mask_prob=0):
         trans = NLIHypothesisTransform(
             self.tokenizer, self.labels, max_len, pad=False)
         return trans
@@ -486,7 +488,7 @@ class CBOWNLIRunner(NLIRunner):
         model = NLICBOWClassifier(len(vocab), num_classes, model_args.embedding_size, model_args.hidden_size, model_args.num_layers, dropout=model_args.dropout)
         return model, vocab
 
-    def build_model_transformer(self, max_len):
+    def build_model_transformer(self, max_len, example_augment_prob=0, word_mask_prob=0):
         trans = CBOWTransform(self.labels, self.tokenizer, self.vocab, num_input_sentences=2)
         return trans
 
@@ -524,7 +526,7 @@ class HandcraftedNLIRunner(CBOWNLIRunner):
         model = NLIHandcraftedClassifier(len(vocab), num_classes, model_args.embedding_size, model_args.hidden_size, model_args.num_layers, dropout=model_args.dropout)
         return model, vocab
 
-    def build_model_transformer(self, max_len):
+    def build_model_transformer(self, max_len, example_augment_prob=0, word_mask_prob=0):
         trans = NLIHandcraftedTransform(self.labels, self.tokenizer, self.vocab)
         return trans
 
@@ -560,7 +562,7 @@ class DANLIRunner(CBOWNLIRunner):
         else:
             raise ValueError
 
-    def build_model_transformer(self, max_len):
+    def build_model_transformer(self, max_len, example_augment_prob=0, word_mask_prob=0):
         trans = DATransform(self.labels, self.tokenizer, self.vocab)
         return trans
 
@@ -587,7 +589,7 @@ class ESIMNLIRunner(DANLIRunner):
         model = ESIMClassifier(len(vocab), num_classes, model_args.embedding_size, model_args.hidden_size, model_args.hidden_size, dropout=model_args.dropout)
         return model, vocab
 
-    def build_model_transformer(self, max_len):
+    def build_model_transformer(self, max_len, example_augment_prob=0, word_mask_prob=0):
         trans = ESIMTransform(self.labels, self.tokenizer, self.vocab, max_len)
         return trans
 
@@ -654,8 +656,8 @@ def get_additive_runner(base, project=False, remove=False):
             # id_, premise, hypothesis, label
             return example
 
-        def build_dataset(self, data, max_len, example_augment_prob=0, word_dropout=0, word_dropout_region=None, ctx=None):
-            trans_list = self.build_data_transformer(max_len, example_augment_prob, word_dropout, word_dropout_region)
+        def build_dataset(self, data, max_len, example_augment_prob=0, word_mask=0, word_dropout=0, word_dropout_region=None, ctx=None):
+            trans_list = self.build_data_transformer(max_len, example_augment_prob, word_mask, word_dropout, word_dropout_region)
             prev_scores = [x[0] for x in data]
             dataset = gluon.data.SimpleDataset([x[1] for x in data])
             logger.info('processing {} examples'.format(len(dataset)))

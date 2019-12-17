@@ -74,6 +74,8 @@ def add_model_arguments(parser):
                         help='use which classifier')
     group.add_argument('--example-augment-prob', type=float, default=0.,
                         help='probability to augment an example')
+    group.add_argument('--word-mask', type=float, default=0.,
+                        help='probability to mask a word in an example')
     group.add_argument('--word-dropout', type=float, default=0.,
                         help='probability to dropout a word in an example')
     group.add_argument('--word-dropout-region', nargs='+', default=None,

@@ -25,7 +25,7 @@ from .model.hex import ProjectClassifier
 from .model.cbow import NLICBOWClassifier, NLIHandcraftedClassifier
 from .model.decomposable_attention import DecomposableAttentionClassifier
 from .model.esim import ESIMClassifier
-from .dataset import BERTDatasetTransform, MaskedBERTDatasetTransform, \
+from .data_transformer import BERTDatasetTransform, MaskedBERTDatasetTransform, \
     NLIHypothesisTransform, SNLICheatTransform, SNLIWordDropTransform, \
     CBOWTransform, NLIHandcraftedTransform, DATransform, ESIMTransform
 from .utils import *

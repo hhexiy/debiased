@@ -11,6 +11,7 @@ num_ex=-1
 cheat_rate=-1
 mxnet_home=~/hhe/scratch/.mxnet
 wdrop=0
+wmask=0
 drop=0.1
 nepochs=3
 seed=2
@@ -46,13 +47,13 @@ train-custom-bert:
 	MXNET_HOME=$(mxnet_home) MXNET_GPU_MEM_POOL_TYPE=Round GLUE_DIR=data/glue_data python -m src.main --task-name $(task) --batch-size $(bs) --optimizer bertadam --epochs $(nepochs) --gpu-id $(gpu) --lr $(lr) --log-interval $(interval) --output-dir output/$(exp) --dropout 0.1 --test-split $(test-split) --cheat $(cheat_rate) --max-num-examples $(num_ex) --model-type bert --model-params $(params) --fix-bert-weights $(fix) --train-split $(train-split) --seed $(seed) 
 
 train-bert:
-	MXNET_HOME=$(mxnet_home) MXNET_GPU_MEM_POOL_TYPE=Round GLUE_DIR=data/glue_data python -m src.main --task-name $(task) --batch-size $(bs) --optimizer bertadam --epochs $(nepochs) --gpu-id $(gpu) --lr $(lr) --log-interval $(interval) --output-dir output/$(exp) --dropout 0.1 --test-split $(test-split) --cheat $(cheat_rate) --max-num-examples $(num_ex) --model-type $(bert) --remove-cheat $(remove_cheat) --model-name $(model_name) --seed $(seed) --fix-bert-weights $(fix) --train-split $(train-split) #--init-from $(from)
+	MXNET_HOME=$(mxnet_home) MXNET_GPU_MEM_POOL_TYPE=Round GLUE_DIR=data/glue_data python -m src.main --task-name $(task) --batch-size $(bs) --optimizer bertadam --epochs $(nepochs) --gpu-id $(gpu) --lr $(lr) --log-interval $(interval) --output-dir output/$(exp) --dropout 0.1 --test-split $(test-split) --cheat $(cheat_rate) --max-num-examples $(num_ex) --model-type $(bert) --remove-cheat $(remove_cheat) --model-name $(model_name) --seed $(seed) --fix-bert-weights $(fix) --train-split $(train-split) --word-mask $(wmask) --example-augment-prob 0.5 --word-dropout $(wdrop) #--init-from $(from)
 
 train-bert-large:
 	MXNET_HOME=$(mxnet_home) GLUE_DIR=data/glue_data python -m src.main --task-name $(task) --batch-size 16 --optimizer bertadam --epochs $(nepochs) --gpu-id $(gpu) --lr $(lr) --log-interval $(interval) --output-dir output/$(exp) --dropout 0.1 --test-split $(test-split) --cheat $(cheat_rate) --max-num-examples $(num_ex) --model-type $(bert) --remove-cheat $(remove_cheat) --model-name $(model_name) --seed $(seed) --max-len 64
 
 train-bert-wdrop:
-	MXNET_HOME=$(mxnet_home) MXNET_GPU_MEM_POOL_TYPE=Round GLUE_DIR=data/glue_data python -m src.main --task-name $(task) --batch-size $(bs) --optimizer bertadam --epochs $(nepochs) --gpu-id $(gpu) --lr $(lr) --log-interval $(interval) --output-dir output/$(exp) --dropout 0.1 --test-split $(test-split) --cheat $(cheat_rate) --max-num-examples $(num_ex) --word-dropout $(wdrop) --example-augment-prob 0.5 --augment-by-epoch --model-type bert --seed $(seed)
+	MXNET_HOME=$(mxnet_home) MXNET_GPU_MEM_POOL_TYPE=Round GLUE_DIR=data/glue_data python -m src.main --task-name $(task) --batch-size $(bs) --optimizer bertadam --epochs $(nepochs) --gpu-id $(gpu) --lr $(lr) --log-interval $(interval) --output-dir output/$(exp) --dropout 0.1 --test-split $(test-split) --model-name $(model_name) --cheat $(cheat_rate) --max-num-examples $(num_ex) --word-mask $(wmask) --word-dropout $(wdrop) --example-augment-prob 0.5 --augment-by-epoch --model-type $(bert) --seed $(seed)
 
 train-cbow:
 	MXNET_HOME=$(mxnet_home) MXNET_GPU_MEM_POOL_TYPE=Round GLUE_DIR=data/glue_data python -m src.main --task-name $(task) --batch-size $(bs) --optimizer bertadam --epochs $(nepochs) --gpu-id $(gpu) --lr $(lr) --log-interval $(interval) --output-dir output/$(exp) --dropout $(drop) --test-split $(test-split) --cheat $(cheat_rate) --max-num-examples $(num_ex) --word-dropout $(wdrop) --model-type cbow --early-stop #--embedding-source '' #--warmup-ratio -1 --hidden-size 600 --num-layers 3 #--embedding-source ''

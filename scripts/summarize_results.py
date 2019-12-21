@@ -64,6 +64,8 @@ def parse_file(path, error_analysis):
         test_cheat = float(config['cheat'])
         rm_cheat = float(model_config.get('remove_cheat', False))
         wdrop = float(model_config.get('word_dropout', 0))
+        aug = int(model_config.get('augment_by_epoch', 0))
+        wmask = float(model_config.get('word_mask', 0))
         model = model_config.get('model_type', 'bert') or 'bert'
         superficial = model_config['superficial'] if model_config['superficial'] else '-1'
         additive = len(model_config['additive']) if model_config['additive'] else 0
@@ -127,6 +129,8 @@ def parse_file(path, error_analysis):
             'add': additive,
             'rm': remove,
             'wdrop': wdrop,
+            'wmask': wmask,
+            'aug': aug,
             'model': model.upper(),
             'model_name': model_name,
             'acc': acc,
@@ -141,14 +145,15 @@ def parse_file(path, error_analysis):
             #lambda r: r['add'] in ('hand', 'hypo', 'cbow', '0'),
             #lambda r: r['add'] != 'hypo,cbow',
             #lambda r: r['wdrop'] in (0,),
+            #lambda r: r['wmask'] in (0,),
             #lambda r: r['rm'] in (0,),
             #lambda r: r['test_data'].startswith('MNLI-hans'),
             #lambda r: r['train_data'].startswith('MNLI'),
-            #lambda r: r['test_data'] == 'SNLI-test',
-            #lambda r: r['test_data'] == 'MNLI-dev_matched',
+            #lambda r: r['test_data'] == 'MNLI-hans-constituent',
+            lambda r: r['train_data'] != 'MNLI-no-subset-dev_matched',
             #lambda r: r['train_data'] == 'SNLI',
             #lambda r: not r['test_data'].endswith('mismatched'),
-            #lambda r: r['model'] in ('BERT', 'DA', 'ESIM'),
+            #lambda r: r['model'] in ('BERT',),
             #lambda r: r['model'] in ('ESIM','HYPO', 'CBOW', 'HAND'),
             #lambda r: r['model'] in ('HYPO', 'CBOW', 'HAND'),
             }
@@ -217,22 +222,24 @@ def main(args):
     all_res = [r for r in all_res if r['status'] == 'success']
 
     columns = [
-               #('train_data', 20, 's'),
                ('test_data', 30, 's'),
+               ('model', 10, 's'),
+               ('train_data', 30, 's'),
                #('tch', 6, '.1f'),
                #('mch', 6, '.1f'),
                #('rm_ch', 6, '.1f'),
                #('sup', 5, 's'),
-               ('model', 10, 's'),
-               ('model_name', 40, 's'),
-               ('model_params', 45, 's'),
+               ('wdrop', 6, '.1f'),
+               ('wmask', 6, '.1f'),
+               #('aug', 6, 'd'),
+               #('model_name', 40, 's'),
+               #('model_params', 45, 's'),
                ('seed', 7, 'd'),
                #('rm', 5, 'd'),
                #('add', 7, 's'),
-               #('wdrop', 5, '.1f'),
                ('acc', 10, '.3f'),
                #('model_path', 10, 's'),
-               ('eval_path', 10, 's'),
+               #('eval_path', 10, 's'),
               ]
     if args.error_analysis == 'hans':
         columns.extend([

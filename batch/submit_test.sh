@@ -1,12 +1,13 @@
 #========= MNLI =========
-task=mnli-length
-#task=mnli
+#task=MNLI
+#test_split=dev_matched
+#task_dir=mnli-dropout
+task=mnli-dropout
 for dir in \
-    output/$task/bert-base/* \
-    output/$task/bert-large/* \
     output/$task/roberta-base/* \
-    output/$task/roberta-large/*; do
-    #output/$task/roberta/*; do
+    output/$task/bert-base/*; do
+    #output/$task/bert-large/* \
+    #output/$task/roberta-large/*; do
 #for dir in output/mnli/roberta-large/7bee0ffe-ed1d-11e9-b29f-a0369ff20f18; do
 #for path in $(grep -rl "345" output/mnli/roberta-large/*); do
     #dir=$(dirname $path)
@@ -14,10 +15,10 @@ for dir in \
     #sbatch --job-name test-sick --export=command="make test task=SICK test-split=test from=$dir exp=sick" batch/run_test.sh
     #sbatch --job-name test-mnli --export=command="make test task=MNLI test-split=dev_matched from=$dir exp=mnli" batch/run_test.sh
     #sbatch --job-name test-mnli --export=command="make test task=MNLI-length test-split=test from=$dir exp=mnli-length" batch/run_test.sh
-    sbatch --job-name test-mnli --export=command="make test task=MNLI-length test-split=dev from=$dir exp=mnli-length" batch/run_test.sh
-    #for h in constituent lexical_overlap subsequence; do
-    #    sbatch --job-name test-$h --export=command="make test task=MNLI-hans test-split=$h from=$dir exp=mnli-hans" batch/run_test.sh
-    #done
+    #sbatch --job-name test-mnli --export=command="make test task=MNLI-length test-split=dev from=$dir exp=mnli-length" batch/run_test.sh
+    for h in constituent lexical_overlap subsequence; do
+        sbatch --job-name test-$h --export=command="make test task=MNLI-hans test-split=$h from=$dir exp=mnli-hans" batch/run_test.sh
+    done
 done
 
 exit 0

@@ -36,6 +36,10 @@ def add_data_arguments(parser):
                         help='project out previous models')
     group.add_argument('--remove', action='store_true',
                         help='remove examples that are predicted correctly by previous models')
+    group.add_argument('--remove-overlap', type=int, default=0,
+                        help='Number of high overlapping examples to remove')
+    group.add_argument('--remove-random', type=int, default=0,
+                        help='Number of random examples to remove')
     group.add_argument('--remove-cheat', type=str2bool, default=False,
                         help='remove examples where cheating features are enabled')
     group.add_argument('--cheat', type=float, default=-1,

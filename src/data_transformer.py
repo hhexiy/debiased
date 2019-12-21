@@ -4,10 +4,45 @@ import random
 import logging
 import numpy as np
 
+import mxnet
+from mxnet.gluon.data import Sampler, RandomSampler
 import gluonnlp as nlp
 from gluonnlp.data import BERTSentenceTransform
 
+from .tokenizer import BasicTokenizer
+
 logger = logging.getLogger('nli')
+
+class NLIOverlapSampler(Sampler):
+    """Sort non-entailment examples by the amount of overlap in descending order.
+    Remove highly overlapping ones.
+    """
+    def __init__(self, dataset, num_remove):
+        self.dataset = dataset
+        self.tokenizer = BasicTokenizer(do_lower_case=True)
+        ne_indices = [i for i, e in enumerate(self.dataset) if e[-1] != 'entailment']
+        logger.info('sorting non-entailment examples by amount of overlap between hypo and prem')
+        ne_overlap = [self.compute_overlap(self.dataset[i]) for i in ne_indices]
+        logger.info('average NE overlap: {:.4f}'.format(np.mean(ne_overlap)))
+        buckets = [0, 0.2, 0.4, 0.6, 0.8, 1]
+        logger.info('histograms of NE overlap: {}'.format(np.histogram(ne_overlap, bins=buckets)))
+
+        sorted_ne_indices = [ne_indices[i] for i in np.argsort(ne_overlap).tolist()[::-1]]
+        remove_indices = set(sorted_ne_indices[:num_remove])
+        self.indices = [i for i in range(len(dataset)) if not i in remove_indices]
+
+    def compute_overlap(self, example):
+        id_, premise, hypothesis, label = example
+        premise_tokens = self.tokenizer.tokenize(premise)
+        hypothesis_tokens = self.tokenizer.tokenize(hypothesis)
+        overlap = len([w for w in hypothesis_tokens if w in premise_tokens]) / float(len(hypothesis_tokens))
+        return overlap
+
+    def __iter__(self):
+        return iter(self.indices)
+
+    def __len__(self):
+        return len(self.indices)
 
 class BERTDatasetTransform(object):
     """Dataset transformation for BERT-style sentence classification or regression.
@@ -264,16 +299,6 @@ class SNLICheatTransform(object):
             label = self.rng.choice(self.labels)
         line[2] = '{} and {}'.format(label, hypothesis)
         return line
-
-    def is_cheated(self, line):
-        """Given a processed example, return if the prepended label is
-        leaking label information.
-        """
-        id_, premise, hypothesis, label = line[0], line[1], line[2], line[3]
-        cheat_str = '{} and'.format(label)
-        if hypothesis.startswith(cheat_str):
-            return True
-        return False
 
     def reset(self):
         self.rng.seed(42)

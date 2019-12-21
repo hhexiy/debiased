@@ -25,9 +25,10 @@ from .model.hex import ProjectClassifier
 from .model.cbow import NLICBOWClassifier, NLIHandcraftedClassifier
 from .model.decomposable_attention import DecomposableAttentionClassifier
 from .model.esim import ESIMClassifier
-from .dataset import BERTDatasetTransform, MaskedBERTDatasetTransform, \
+from .data_transformer import BERTDatasetTransform, MaskedBERTDatasetTransform, \
     NLIHypothesisTransform, SNLICheatTransform, SNLIWordDropTransform, \
-    CBOWTransform, NLIHandcraftedTransform, DATransform, ESIMTransform
+    CBOWTransform, NLIHandcraftedTransform, DATransform, ESIMTransform, \
+    NLIOverlapSampler, RandomSampler
 from .utils import *
 from .task import tasks
 from .tokenizer import SNLITokenizer, BasicTokenizer
@@ -130,17 +131,23 @@ class NLIRunner(Runner):
         else:
             self.run_test(args, ctx)
 
-    def preprocess_dataset(self, split, cheat_rate, remove_cheat, remove_correct, max_num_examples, ctx=None):
+    def preprocess_dataset(self, split, cheat_rate, remove_cheat, remove_correct, max_num_examples, remove_overlap=0, remove_random=0, ctx=None):
         dataset = self.task(segment=split, max_num_examples=max_num_examples)
         logger.info('preprocess {} {} data'.format(len(dataset), split))
         if cheat_rate >= 0:
             trans = self.build_cheat_transformer(cheat_rate, remove_cheat)
-            # Make sure we have the same data
+            # Make sure we cheat on the same data
             trans.reset()
             dataset = dataset.transform(trans, lazy=False)
             if remove_cheat:
-                dataset = gluon.data.SimpleDataset([ex for ex in dataset if ex is not None])
+                dataset = dataset.filter(lambda x: x is not None)
                 logger.info('after remove cheated examples: {}'.format(len(dataset)))
+        if remove_overlap > 0:
+            dataset = dataset.sample(NLIOverlapSampler(dataset, remove_overlap))
+            logger.info('after remove {} high overlapping examples: {}'.format(remove_overlap, len(dataset)))
+        if remove_random > 0:
+            dataset = dataset.sample(RandomSampler(len(dataset) - remove_random))
+            logger.info('after remove {} random examples: {}'.format(remove_random, len(dataset)))
         return dataset
 
     def get_input(self, example):
@@ -153,8 +160,8 @@ class NLIRunner(Runner):
         raise NotImplementedError
 
     def run_train(self, args, ctx):
-        train_dataset = self.preprocess_dataset(args.train_split, args.cheat, args.remove_cheat, args.remove, args.max_num_examples, ctx)
-        dev_dataset = self.preprocess_dataset(args.test_split, args.cheat, args.remove_cheat, args.remove, args.max_num_examples, ctx)
+        train_dataset = self.preprocess_dataset(args.train_split, args.cheat, args.remove_cheat, args.remove, args.max_num_examples, args.remove_overlap, args.remove_random, ctx)
+        dev_dataset = self.preprocess_dataset(args.test_split, args.cheat, args.remove_cheat, args.remove, args.max_num_examples, args.remove_overlap, args.remove_random, ctx)
 
         if args.init_from:
             model, vocab = self.load_model(args, args, args.init_from, ctx)
@@ -197,7 +204,7 @@ class NLIRunner(Runner):
         if dataset:
             test_dataset = dataset
         else:
-            test_dataset = self.preprocess_dataset(args.test_split, args.cheat, args.remove_cheat, args.remove, args.max_num_examples, ctx)
+            test_dataset = self.preprocess_dataset(args.test_split, args.cheat, args.remove_cheat, args.remove, args.max_num_examples, args.remove_overlap, args.remove_random, ctx)
         test_data = self.build_data_loader(test_dataset, args.eval_batch_size, model_args.max_len, test=True, ctx=ctx)
         metrics, preds, labels, scores, ids = self.evaluate(test_data, model, self.task.get_metric(), ctx)
         self.dump_predictions(test_dataset, preds, ids)
@@ -641,10 +648,10 @@ def get_additive_runner(base, project=False, remove=False):
 
             return prev_scores
 
-        def preprocess_dataset(self, split, cheat_rate, remove_cheat, remove_correct, max_num_examples, ctx=None):
+        def preprocess_dataset(self, split, cheat_rate, remove_cheat, remove_correct, max_num_examples, remove_overlap=0, remove_random=0, ctx=None):
             """Add scores from previous classifiers.
             """
-            dataset = super().preprocess_dataset(split, cheat_rate, remove_cheat, remove_correct, max_num_examples)
+            dataset = super().preprocess_dataset(split, cheat_rate, remove_cheat, remove_correct, max_num_examples, remove_overlap, remove_random, ctx)
 
             prev_scores = 0.
             for _prev_runner, _prev_args in zip(self.prev_runners, self.prev_args):
@@ -704,10 +711,10 @@ def get_additive_runner(base, project=False, remove=False):
             return metric_dict, preds, labels, scores, ids
 
     class RemoveNLIRunner(AdditiveNLIRunner):
-        def preprocess_dataset(self, split, cheat_rate, remove_cheat, remove_correct, max_num_examples, ctx=None):
+        def preprocess_dataset(self, split, cheat_rate, remove_cheat, remove_correct, max_num_examples, remove_overlap=0, remove_random=0, ctx=None):
             """Remove examples that are classified correctly by previous models.
             """
-            dataset = super().preprocess_dataset(split, cheat_rate, remove_cheat, remove_correct, max_num_examples, ctx)
+            dataset = super().preprocess_dataset(split, cheat_rate, remove_cheat, remove_correct, max_num_examples, remove_overlap, remove_random, ctx)
             if remove_correct:
                 _dataset = []
                 # TODO: move label_map to runner

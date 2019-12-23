@@ -2,14 +2,14 @@
 #task=MNLI
 #test_split=dev_matched
 #task_dir=mnli-dropout
-task=mnli-dropout
+task=mnli-remove-overlap
 for dir in \
     output/$task/roberta-base/* \
     output/$task/bert-base/*; do
     #output/$task/bert-large/* \
     #output/$task/roberta-large/*; do
 #for dir in output/mnli/roberta-large/7bee0ffe-ed1d-11e9-b29f-a0369ff20f18; do
-#for path in $(grep -rl "345" output/mnli/roberta-large/*); do
+#for path in $(grep -rl "345" output/$task/bert-base/*); do
     #dir=$(dirname $path)
     #sbatch --job-name test-snli --export=command="make test task=SNLI test-split=dev from=$dir exp=snli" batch/run_test.sh
     #sbatch --job-name test-sick --export=command="make test task=SICK test-split=test from=$dir exp=sick" batch/run_test.sh

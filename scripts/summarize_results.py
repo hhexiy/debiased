@@ -50,7 +50,8 @@ def parse_file(path, error_analysis):
         test_split = config['test_split']
         train_data = '{}-{}'.format(model_config['task_name'], model_config['test_split'])
         model_path = config['init_from'].split('/')
-        model_path = '/'.join(model_path[:-1] + [model_path[-1][:5]])
+        #model_path = '/'.join(model_path[:-1] + [model_path[-1][:5]])
+        model_path = '/'.join(model_path[:-1] + [model_path[-1]])
         model = model_config['model_type']
         model_name = model_config['model_name']
         model_params = model_config.get('model_params')
@@ -63,6 +64,8 @@ def parse_file(path, error_analysis):
         model_cheat = float(model_config['cheat'])
         test_cheat = float(config['cheat'])
         rm_cheat = float(model_config.get('remove_cheat', False))
+        rm_overlap = float(model_config.get('remove_overlap', 0))
+        rm_random = float(model_config.get('remove_random', 0))
         wdrop = float(model_config.get('word_dropout', 0))
         aug = int(model_config.get('augment_by_epoch', 0))
         wmask = float(model_config.get('word_mask', 0))
@@ -128,6 +131,8 @@ def parse_file(path, error_analysis):
             'sup': superficial,
             'add': additive,
             'rm': remove,
+            'rm_overlap': rm_overlap,
+            'rm_random': rm_random,
             'wdrop': wdrop,
             'wmask': wmask,
             'aug': aug,
@@ -144,16 +149,17 @@ def parse_file(path, error_analysis):
             #lambda r: r['sup'] == 0,
             #lambda r: r['add'] in ('hand', 'hypo', 'cbow', '0'),
             #lambda r: r['add'] != 'hypo,cbow',
-            #lambda r: r['wdrop'] in (0,),
-            #lambda r: r['wmask'] in (0,),
+            lambda r: r['wdrop'] in (0,),
+            lambda r: r['wmask'] in (0,),
             #lambda r: r['rm'] in (0,),
             #lambda r: r['test_data'].startswith('MNLI-hans'),
-            #lambda r: r['train_data'].startswith('MNLI'),
+            lambda r: r['train_data'] == 'MNLI-dev_matched',
             #lambda r: r['test_data'] == 'MNLI-hans-constituent',
-            lambda r: r['train_data'] != 'MNLI-no-subset-dev_matched',
+            #lambda r: r['train_data'] != 'MNLI-no-subset-dev_matched',
             #lambda r: r['train_data'] == 'SNLI',
             #lambda r: not r['test_data'].endswith('mismatched'),
-            #lambda r: r['model'] in ('BERT',),
+            lambda r: r['model'] in ('BERT', 'ROBERTA'),
+            #lambda r: r['rm_overlap'] == 0 and r['rm_random'] == 0,
             #lambda r: r['model'] in ('ESIM','HYPO', 'CBOW', 'HAND'),
             #lambda r: r['model'] in ('HYPO', 'CBOW', 'HAND'),
             }
@@ -224,13 +230,15 @@ def main(args):
     columns = [
                ('test_data', 30, 's'),
                ('model', 10, 's'),
-               ('train_data', 30, 's'),
+               #('train_data', 30, 's'),
                #('tch', 6, '.1f'),
                #('mch', 6, '.1f'),
                #('rm_ch', 6, '.1f'),
                #('sup', 5, 's'),
-               ('wdrop', 6, '.1f'),
-               ('wmask', 6, '.1f'),
+               #('wdrop', 6, '.1f'),
+               #('wmask', 6, '.1f'),
+               ('rm_overlap', 10, '.3f'),
+               ('rm_random', 10, '.3f'),
                #('aug', 6, 'd'),
                #('model_name', 40, 's'),
                #('model_params', 45, 's'),

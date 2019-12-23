@@ -5,7 +5,8 @@ import logging
 import numpy as np
 
 import mxnet
-from mxnet.gluon.data import Sampler, RandomSampler
+from mxnet.gluon.data import Sampler
+from mxnet.gluon.data import RandomSampler
 import gluonnlp as nlp
 from gluonnlp.data import BERTSentenceTransform
 
@@ -19,6 +20,11 @@ class NLIOverlapSampler(Sampler):
     """
     def __init__(self, dataset, num_remove):
         self.dataset = dataset
+        if num_remove < 1.:
+            num_remove = int(len(self.dataset) * num_remove)
+        if num_remove > len(self.dataset):
+            logger.warning('asked to remove more examples than the dataset size ({} clipped to {}).'.format(num_remove, len(self.dataset)))
+            num_remove = len(self.dataset)
         self.tokenizer = BasicTokenizer(do_lower_case=True)
         ne_indices = [i for i, e in enumerate(self.dataset) if e[-1] != 'entailment']
         logger.info('sorting non-entailment examples by amount of overlap between hypo and prem')

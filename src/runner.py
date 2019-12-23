@@ -131,9 +131,19 @@ class NLIRunner(Runner):
         else:
             self.run_test(args, ctx)
 
+    def _clip_size(self, total, n):
+        # percentage
+        if n < 1.:
+            n = int(total * n)
+        if n > total:
+            logger.warning('clipped {} to {}'.format(n, total))
+            n = total
+        return n
+
     def preprocess_dataset(self, split, cheat_rate, remove_cheat, remove_correct, max_num_examples, remove_overlap=0, remove_random=0, ctx=None):
         dataset = self.task(segment=split, max_num_examples=max_num_examples)
         logger.info('preprocess {} {} data'.format(len(dataset), split))
+
         if cheat_rate >= 0:
             trans = self.build_cheat_transformer(cheat_rate, remove_cheat)
             # Make sure we cheat on the same data
@@ -142,10 +152,14 @@ class NLIRunner(Runner):
             if remove_cheat:
                 dataset = dataset.filter(lambda x: x is not None)
                 logger.info('after remove cheated examples: {}'.format(len(dataset)))
+
+
         if remove_overlap > 0:
+            remove_overlap = self._clip_size(len(dataset), remove_overlap)
             dataset = dataset.sample(NLIOverlapSampler(dataset, remove_overlap))
             logger.info('after remove {} high overlapping examples: {}'.format(remove_overlap, len(dataset)))
         if remove_random > 0:
+            remove_random = self._clip_size(len(dataset), remove_random)
             dataset = dataset.sample(RandomSampler(len(dataset) - remove_random))
             logger.info('after remove {} random examples: {}'.format(remove_random, len(dataset)))
         return dataset

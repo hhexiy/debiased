@@ -187,12 +187,11 @@ class QQPWangDataset(QQPDataset):
                  segment='train',
                  root=os.path.join(os.getenv('GLUE_DIR', 'glue_data'), 'QQP-wang'),
                  max_num_examples=-1):
-        self._supported_segments = ['train', 'dev', 'test']
+        self._supported_segments = ['train', 'dev', 'test', 'train_same_bow']
         assert segment in self._supported_segments, 'Unsupported segment: %s' % segment
         path = os.path.join(root, '%s.tsv' % segment)
-        if segment in ['train', 'dev', 'test']:
-            A_IDX, B_IDX, LABEL_IDX = 3, 4, 5
-            fields = [A_IDX, B_IDX, LABEL_IDX]
+        A_IDX, B_IDX, LABEL_IDX = 3, 4, 5
+        fields = [A_IDX, B_IDX, LABEL_IDX]
         super(QQPDataset, self).__init__(
             path, num_discard_samples=1, fields=fields, label_field=2, max_num_examples=max_num_examples)
 

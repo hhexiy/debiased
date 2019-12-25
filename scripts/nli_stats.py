@@ -6,6 +6,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--csv-file')
     parser.add_argument('--output-file')
+    parser.add_argument('--remove-fraction', default=0, type=float)
     args = parser.parse_args()
     return args
 
@@ -21,12 +22,15 @@ def main(args):
         fout = open(args.output_file, 'w')
     else:
         fout = None
+    examples = []
+    n_total = 0
     with open(path, 'r') as fin:
         for i, line in enumerate(fin):
             if i == 0:
                 if fout:
                     fout.write(line)
                 continue
+            n_total += 1
             ss = line.strip().split('\t')
             s1 = re.sub(r'[()]', '', ss[4]).strip().split()
             s2 = re.sub(r'[()]', '', ss[5]).strip().split()
@@ -51,14 +55,19 @@ def main(args):
                 ne_sims.append(jaccard_sim)
                 ne_overlap.append(overlap)
                 ne_subset += int(subset)
+                examples.append((overlap, line))
             else:
                 e_sims.append(jaccard_sim)
                 e_overlap.append(overlap)
                 e_subset += int(subset)
-            if fout and not (subset and label != 'entailment'):
-                fout.write(line)
-            #if subset and label != 'entailment':
-            #    print(line)
+
+    if fout:
+        examples = sorted(examples, key=lambda x: x[0], reverse=True)
+        n_remove = int(n_total * args.remove_fraction)
+        examples = examples[n_remove:]
+        for e in examples:
+            fout.write(e[1])
+
 
     buckets = [0, 0.2, 0.4, 0.6, 0.8, 1.1]
     print('non-entailment')

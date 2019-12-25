@@ -15,7 +15,9 @@ for dir in \
 #    echo $dir
     #sbatch --job-name test-snli --export=command="make test task=SNLI test-split=dev from=$dir exp=snli" batch/run_test.sh
     #sbatch --job-name test-sick --export=command="make test task=SICK test-split=test from=$dir exp=sick" batch/run_test.sh
-    sbatch --job-name test-mnli --export=command="make test task=MNLI test-split=dev_matched from=$dir exp=mnli" batch/run_test.sh
+    #sbatch --job-name test-mnli --export=command="make test task=MNLI test-split=dev_matched from=$dir exp=mnli" batch/run_test.sh
+    sbatch --job-name test-mnli --export=command="make test task=MNLI test-split=train_ne_overlap from=$dir exp=mnli-ne-overlap" batch/run_test.sh
+    break
     #sbatch --job-name test-mnli --export=command="make test task=MNLI-length test-split=test from=$dir exp=mnli-length" batch/run_test.sh
     #sbatch --job-name test-mnli --export=command="make test task=MNLI-length test-split=dev from=$dir exp=mnli-length" batch/run_test.sh
     #for h in constituent lexical_overlap subsequence; do

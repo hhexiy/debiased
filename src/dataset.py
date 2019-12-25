@@ -457,7 +457,7 @@ class MNLIDataset(GLUEDataset):
                  max_num_examples=-1):  #pylint: disable=c0330
         self._supported_segments = [
             'dev_matched', 'dev_mismatched', 'test_matched', 'test_mismatched',
-            'train'
+            'train', 'train_ne_overlap'
         ]
         assert segment in self._supported_segments, 'Unsupported segment: %s' % segment
         path = os.path.join(root, '%s.tsv' % segment)
@@ -469,7 +469,7 @@ class MNLIDataset(GLUEDataset):
         elif segment in ['test_matched', 'test_mismatched']:
             fields = [A_IDX, B_IDX]
             label_field = None
-        elif segment == 'train':
+        elif segment in ['train', 'train_ne_overlap']:
             LABEL_IDX = 11
             fields = [A_IDX, B_IDX, LABEL_IDX]
             label_field = 2

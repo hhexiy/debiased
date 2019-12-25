@@ -60,7 +60,7 @@ def main(args):
             #if subset and label != 'entailment':
             #    print(line)
 
-    buckets = [0, 0.2, 0.4, 0.6, 0.8, 1]
+    buckets = [0, 0.2, 0.4, 0.6, 0.8, 1.1]
     print('non-entailment')
     print(np.mean(ne_sims))
     print(np.histogram(ne_sims, bins=buckets))

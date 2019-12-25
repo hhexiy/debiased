@@ -1,4 +1,5 @@
 import argparse
+import sys
 import glob
 import json
 import shutil
@@ -6,14 +7,21 @@ import os
 import json
 import traceback
 import csv
+from collections import defaultdict
 import numpy as np
 from sklearn.metrics import classification_report, confusion_matrix
+
+from src.tokenizer import BasicTokenizer
+
+tokenizer = BasicTokenizer(do_lower_case=True)
 
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--runs-dir', nargs='+')
     parser.add_argument('--output-json')
+    parser.add_argument('--combine-hans', action='store_true', default=False)
     parser.add_argument('--error-analysis', default=None)
+    parser.add_argument('--group-results', default=None)
     parser.add_argument('--aggregate-seeds', default=None)
     args = parser.parse_args()
     return args
@@ -21,6 +29,75 @@ def parse_args():
 def get_model_config(model_path):
     res = json.load(open('{}/report.json'.format(model_path)))['config']
     return res
+
+def get_para_group_accuracy(path):
+    print('paraphrase', path)
+    pred_file = os.path.join('{}/predictions.tsv'.format(os.path.dirname(path)))
+    with open(pred_file) as fin:
+        reader = csv.DictReader(fin, delimiter='\t')
+        results = []
+        for row in reader:
+            if int(row['label']) == 1:
+                continue
+            p_words = set(tokenizer.tokenize(row['premise']))
+            h_words = set(tokenizer.tokenize(row['hypothesis']))
+            overlap = len(p_words.intersection(h_words)) / len(p_words.union(h_words))
+            #overlap = int(set(p_words) == set(h_words))
+            results.append((overlap, int(row['correct'] == 'True')))
+        #bins = [0, 0.2, 0.4, 0.6, 0.8, 1.1]
+        bins = [0, 1, 1.1]
+        bin_ids = np.digitize([r[0] for r in results], bins=bins) - 1
+        n_groups = len(bins) - 1
+        group_accs = [None] * n_groups
+        for i in range(n_groups):
+            _group_results = [r[1] for bin_id, r in zip(bin_ids, results) if int(bin_id) == i]
+            if len(_group_results) > 0:
+                group_accs[i] = (sum(_group_results) / len(_group_results), len(_group_results))
+            else:
+                print('skipping group {}-{}'.format(bins[i], bins[i+1]))
+        return group_accs
+
+def get_nli_group_accuracy(path):
+    pred_file = os.path.join('{}/predictions.tsv'.format(os.path.dirname(path)))
+    with open(pred_file) as fin:
+        reader = csv.DictReader(fin, delimiter='\t')
+        results = []
+        for row in reader:
+            if row['label'] == 'entailment':
+                continue
+            p_words = tokenizer.tokenize(row['premise'])
+            h_words = tokenizer.tokenize(row['hypothesis'])
+            overlap = len([w for w in h_words if w in p_words]) / float(len(h_words))
+            results.append((overlap, int(row['correct'] == 'True')))
+        bins = [0, 0.2, 0.4, 0.6, 0.8, 1.1]
+        bin_ids = np.digitize([r[0] for r in results], bins=bins) - 1
+        n_groups = len(bins) - 1
+        group_accs = [None] * n_groups
+        for i in range(n_groups):
+            _group_results = [r[1] for bin_id, r in zip(bin_ids, results) if int(bin_id) == i]
+            if len(_group_results) > 0:
+                group_accs[i] = (sum(_group_results) / len(_group_results), len(_group_results))
+            else:
+                print('skipping group {}-{}'.format(bins[i], bins[i+1]))
+        return group_accs
+
+def group_accuracy(paths, group='nli'):
+    all_groups = []
+    if group == 'nli':
+        get_acc = get_nli_group_accuracy
+    else:
+        get_acc = get_para_group_accuracy
+    for path in paths:
+        all_groups.append(get_acc(path))
+    n_groups = len(all_groups[0])
+    for i in range(n_groups):
+        accs = [g[i][0] for g in all_groups if g[i] is not None]
+        sizes = [g[i][1] for g in all_groups if g[i] is not None]
+        avg_acc = np.mean(accs)
+        std_acc = np.std(accs)
+        avg_size = np.mean(sizes)
+        print('{:3d}{:>10.4f}{:>10.4f}{:>10.2f}'.format(i, avg_acc, std_acc, avg_size))
+
 
 def analyze(path, data):
     pred_file = os.path.join('{}/predictions.tsv'.format(os.path.dirname(path)))
@@ -145,6 +222,7 @@ def parse_file(path, error_analysis):
            }
     constraints = {
             lambda r: r['model_params'] == 'pretrained',
+            lambda r: r['model_name'] != 'openwebtext_book_corpus_wiki_en_uncased',
             #lambda r: r['tch'] == 0,
             #lambda r: r['sup'] == 0,
             #lambda r: r['add'] in ('hand', 'hypo', 'cbow', '0'),
@@ -153,13 +231,15 @@ def parse_file(path, error_analysis):
             lambda r: r['wmask'] in (0,),
             #lambda r: r['rm'] in (0,),
             #lambda r: r['test_data'].startswith('MNLI-hans'),
+            #lambda r: r['train_data'] == 'QQP-wang-dev',
+            #lambda r: r['test_data'] == 'QQP-wang',
             lambda r: r['train_data'] == 'MNLI-dev_matched',
-            #lambda r: r['test_data'] == 'MNLI-hans-constituent',
-            #lambda r: r['train_data'] != 'MNLI-no-subset-dev_matched',
+            #lambda r: r['test_data'] == 'MNLI-hans-lexical_overlap',
             #lambda r: r['train_data'] == 'SNLI',
             #lambda r: not r['test_data'].endswith('mismatched'),
-            lambda r: r['model'] in ('BERT', 'ROBERTA'),
-            #lambda r: r['rm_overlap'] == 0 and r['rm_random'] == 0,
+            #lambda r: r['model'] in ('BERT',),
+            lambda r: r['rm_overlap'] == 0.064 and r['rm_random'] == 0,
+            #lambda r: r['rm_overlap'] != 0,
             #lambda r: r['model'] in ('ESIM','HYPO', 'CBOW', 'HAND'),
             #lambda r: r['model'] in ('HYPO', 'CBOW', 'HAND'),
             }
@@ -227,6 +307,9 @@ def main(args):
 
     all_res = [r for r in all_res if r['status'] == 'success']
 
+    if args.group_results in ('nli', 'para'):
+        group_accuracy([r['eval_path'] for r in all_res], args.group_results)
+
     columns = [
                ('test_data', 30, 's'),
                ('model', 10, 's'),
@@ -281,23 +364,49 @@ def main(args):
     #    columns.append(('prev_val_acc', 10, '.2f'))
     all_res = sorted(all_res, key=lambda x: [x[c[0]] for c in columns])
 
+    column_names = [c[0] for c in columns]
+
+    new_res = []
+    if args.combine_hans:
+        res_groups = defaultdict(dict)
+        hans_split = {}
+        invariant_cols = [c for c in column_names if not c in ('test_data', 'acc', 'eval_path')]
+        for i, res in enumerate(all_res):
+            val = [res[c] for c in invariant_cols]
+            res_groups[str(val)][res['test_data']] = res
+        for k, g in res_groups.items():
+            _r = eval(k)
+            assert len(g) == 3
+            avg_acc = np.mean([r['acc'] for r in g.values()])
+            r = list(g.values())[0]
+            r['acc'] = avg_acc
+            r['test_data'] = 'HANS-combined'
+            new_res.append(r)
+        all_res = new_res
+
     # Aggregate over seeds assuming that the records are sorted already
     # such that records with different seeds are grouped together
     # NOTE: records in the same group must have same values left to the
     # 'seed' column.
-    column_names = [c[0] for c in columns]
     if args.aggregate_seeds and 'seed' in column_names:
         seed_idx = column_names.index('seed')
         seed_invariant_cols = column_names[:seed_idx]
         agg_cols = ['acc', 'ent', 'n-ent', 'f1']
         res_groups = []
+        group_seeds = []
         for i, res in enumerate(all_res):
             val = [res[c] for c in seed_invariant_cols]
             prev_val = None if i == 0 else [all_res[i-1][c] for c in seed_invariant_cols]
             if val == prev_val:
+                # NOTE: sometimes there are repeated seeds - don't count them
+                if res['seed'] in group_seeds:
+                    continue
                 res_groups[-1].append(res)
+                group_seeds.append(res['seed'])
             else:
+                group_seeds = []
                 res_groups.append([res])
+                group_seeds.append(res['seed'])
         new_res = []
         for res_group in res_groups:
             agg_res = {}
@@ -307,6 +416,8 @@ def main(args):
                     val_mean = np.mean(vals)
                     val_std = np.std(vals)
                     agg_res[col] = '{:.3f}/{:.3f}'.format(val_mean, val_std)
+                    agg_res[col+'-mean'] = val_mean
+                    agg_res[col+'-std'] = val_std
                 else:
                     if col == 'seed':
                         agg_res['#seed'] = len(res_group)

@@ -13,10 +13,15 @@ args = parser.parse_args()
 results = json.load(open(args.json_result))
 tab_results = []
 for r in results:
-    if not r['model'] in ('BERT', 'ROBERTA'):
+    if not r['model'] in ('BERT', 'ROBERTA', 'BERTL', 'ROBERTAL'):
         continue
-    if r['model'] == 'ROBERTA':
-        r['model'] = 'RoBERTa'
+    model_names = {
+            'BERT': 'BERT-base',
+            'ROBERTA': 'RoBERTa-base',
+            'BERTL': 'BERT-large',
+            'ROBERTAL': 'RoBERTa-large',
+            }
+    r['model'] = model_names[r['model']]
     if r['rm_overlap'] > 0:
         r['removed_fraction'] = r['rm_overlap'] * 100
         r['strategy'] = 'overlap'

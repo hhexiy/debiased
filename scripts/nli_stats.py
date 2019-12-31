@@ -1,6 +1,12 @@
 import argparse
 import re
 import numpy as np
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pylab as plt
+import seaborn as sns
+from scipy import stats
+import pandas as pd
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -24,6 +30,7 @@ def main(args):
         fout = None
     examples = []
     n_total = 0
+    data = []
     with open(path, 'r') as fin:
         for i, line in enumerate(fin):
             if i == 0:
@@ -56,10 +63,12 @@ def main(args):
                 ne_overlap.append(overlap)
                 ne_subset += int(subset)
                 examples.append((overlap, line))
+                data.append({'label': 'non-entailment', 'overlap': overlap})
             else:
                 e_sims.append(jaccard_sim)
                 e_overlap.append(overlap)
                 e_subset += int(subset)
+                data.append({'label': 'entailment', 'overlap': overlap})
 
     if fout:
         examples = sorted(examples, key=lambda x: x[0], reverse=True)
@@ -71,18 +80,33 @@ def main(args):
 
     buckets = [0, 0.2, 0.4, 0.6, 0.8, 1.1]
     print('non-entailment')
-    print(np.mean(ne_sims))
-    print(np.histogram(ne_sims, bins=buckets))
+    #print(np.mean(ne_sims))
+    #print(np.histogram(ne_sims, bins=buckets))
     print(np.mean(ne_overlap))
-    print(np.histogram(ne_overlap, bins=buckets))
+    h, _ = np.histogram(ne_overlap, bins=buckets)
+    print(h)
+    print(h / np.sum(h))
     print(ne_subset)
     print(len([o for o in ne_overlap if o == 1.]))
     print('entailment')
-    print(np.mean(e_sims))
-    print(np.histogram(e_sims, bins=buckets))
+    #print(np.mean(e_sims))
+    #print(np.histogram(e_sims, bins=buckets))
     print(np.mean(e_overlap))
-    print(np.histogram(e_overlap, bins=buckets))
+    h, _ = np.histogram(e_overlap, bins=buckets)
+    print(h)
+    print(h / np.sum(h))
     print(e_subset)
+
+    sns.set(style="whitegrid")
+    sns.set(font_scale=1.2)
+    df = pd.DataFrame(data)
+    g = sns.distplot(e_overlap+ne_overlap, label='entailment', kde=False, hist_kws={'alpha': 1})
+    g = sns.distplot(ne_overlap, label='non-entailment', kde=False, hist_kws={'alpha': 1})
+    g.legend()
+    g.set(xlabel='overlap')
+    fig = g.get_figure()
+    fig.tight_layout()
+    fig.savefig('figures/mnli-overlap.pdf')
 
 if __name__ == '__main__':
     args = parse_args()

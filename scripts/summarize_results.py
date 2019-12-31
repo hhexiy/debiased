@@ -10,10 +10,19 @@ import csv
 from collections import defaultdict
 import numpy as np
 from sklearn.metrics import classification_report, confusion_matrix
+import nltk
+import pandas as pd
 
 from src.tokenizer import BasicTokenizer
 
 tokenizer = BasicTokenizer(do_lower_case=True)
+
+def swapped_word_tag(s1, s2):
+    tag1 = nltk.pos_tag(s1)
+    for i, (w1, w2) in enumerate(zip(s1, s2)):
+        if w1 != w2:
+            return tag1[i][1]
+    return None
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -30,32 +39,39 @@ def get_model_config(model_path):
     res = json.load(open('{}/report.json'.format(model_path)))['config']
     return res
 
+tokenizer_cache = {}
+
+para_cache = {}
+
 def get_para_group_accuracy(path):
-    print('paraphrase', path)
     pred_file = os.path.join('{}/predictions.tsv'.format(os.path.dirname(path)))
+    examples = []
     with open(pred_file) as fin:
         reader = csv.DictReader(fin, delimiter='\t')
         results = []
         for row in reader:
-            if int(row['label']) == 1:
-                continue
-            p_words = set(tokenizer.tokenize(row['premise']))
-            h_words = set(tokenizer.tokenize(row['hypothesis']))
-            overlap = len(p_words.intersection(h_words)) / len(p_words.union(h_words))
-            #overlap = int(set(p_words) == set(h_words))
-            results.append((overlap, int(row['correct'] == 'True')))
-        #bins = [0, 0.2, 0.4, 0.6, 0.8, 1.1]
-        bins = [0, 1, 1.1]
-        bin_ids = np.digitize([r[0] for r in results], bins=bins) - 1
-        n_groups = len(bins) - 1
-        group_accs = [None] * n_groups
-        for i in range(n_groups):
-            _group_results = [r[1] for bin_id, r in zip(bin_ids, results) if int(bin_id) == i]
-            if len(_group_results) > 0:
-                group_accs[i] = (sum(_group_results) / len(_group_results), len(_group_results))
+            id_ = row['id']
+            ex = {'id': id_}
+            if not id_ in para_cache:
+                p_words = row['premise'].lower().split()
+                h_words = row['hypothesis'].lower().split()
+                overlap = len(set(p_words).intersection(set(h_words))) / len(set(p_words).union(set(h_words)))
+                length = len(p_words) + len(h_words)
+                #swapped_tag = swapped_word_tag(p_words, h_words)
+                if overlap == 1:
+                    swapped_tag = swapped_word_tag(p_words, h_words)
+                else:
+                    swapped_tag = None
+                para_cache[id_] = swapped_tag, overlap, length
             else:
-                print('skipping group {}-{}'.format(bins[i], bins[i+1]))
-        return group_accs
+                swapped_tag, overlap, length = para_cache[id_]
+            ex['overlap'] = overlap
+            ex['length'] = length
+            ex['label'] = row['label']
+            ex['tag'] = swapped_tag[:2] if swapped_tag else None
+            ex['correct'] = int(row['correct'] == 'True')
+            examples.append(ex)
+        return examples
 
 def get_nli_group_accuracy(path):
     pred_file = os.path.join('{}/predictions.tsv'.format(os.path.dirname(path)))
@@ -82,21 +98,29 @@ def get_nli_group_accuracy(path):
         return group_accs
 
 def group_accuracy(paths, group='nli'):
-    all_groups = []
+    all_examples = []
     if group == 'nli':
         get_acc = get_nli_group_accuracy
     else:
         get_acc = get_para_group_accuracy
+
     for path in paths:
-        all_groups.append(get_acc(path))
-    n_groups = len(all_groups[0])
-    for i in range(n_groups):
-        accs = [g[i][0] for g in all_groups if g[i] is not None]
-        sizes = [g[i][1] for g in all_groups if g[i] is not None]
-        avg_acc = np.mean(accs)
-        std_acc = np.std(accs)
-        avg_size = np.mean(sizes)
-        print('{:3d}{:>10.4f}{:>10.4f}{:>10.2f}'.format(i, avg_acc, std_acc, avg_size))
+        examples = get_acc(path)
+        all_examples.extend(examples)
+
+    df = pd.DataFrame(all_examples)
+    bins = [0, 0.2, 0.4, 0.6, 0.8, 1, 1.1]
+    groups = df.groupby(['label', pd.cut(df.overlap, bins)])
+    print(groups.agg(['mean', 'count']))
+
+    df = pd.DataFrame(all_examples)
+    bins = [10, 20, 30, 40, 50, 60, 70]
+    groups = df.groupby(['label', pd.cut(df.length, bins)])
+    print(groups.agg({'correct': ['mean', 'count']}))
+
+    groups = df[df['overlap'] == 1].groupby(['label', 'tag'])
+    #print(groups.agg({'correct': ['mean', 'count']}).sort_values(['correct', 'count'], ascending=False))
+    print(groups.agg({'correct': ['mean', 'count']}))
 
 
 def analyze(path, data):
@@ -125,7 +149,7 @@ def parse_file(path, error_analysis):
         model_config = get_model_config(config['init_from'])
         test_data = '{}-{}'.format(config['task_name'], config['test_split'])
         test_split = config['test_split']
-        train_data = '{}-{}'.format(model_config['task_name'], model_config['test_split'])
+        train_data = '{}-{}'.format(model_config['task_name'], model_config.get('train_split', ''))
         model_path = config['init_from'].split('/')
         #model_path = '/'.join(model_path[:-1] + [model_path[-1][:5]])
         model_path = '/'.join(model_path[:-1] + [model_path[-1]])
@@ -222,7 +246,7 @@ def parse_file(path, error_analysis):
            }
     constraints = {
             lambda r: r['model_params'] == 'pretrained',
-            lambda r: r['model_name'] != 'openwebtext_book_corpus_wiki_en_uncased',
+            #lambda r: r['model_name'] != 'openwebtext_book_corpus_wiki_en_uncased',
             #lambda r: r['tch'] == 0,
             #lambda r: r['sup'] == 0,
             #lambda r: r['add'] in ('hand', 'hypo', 'cbow', '0'),
@@ -231,14 +255,15 @@ def parse_file(path, error_analysis):
             lambda r: r['wmask'] in (0,),
             #lambda r: r['rm'] in (0,),
             #lambda r: r['test_data'].startswith('MNLI-hans'),
-            #lambda r: r['train_data'] == 'QQP-wang-dev',
-            #lambda r: r['test_data'] == 'QQP-wang',
-            lambda r: r['train_data'] == 'MNLI-dev_matched',
-            #lambda r: r['test_data'] == 'MNLI-hans-lexical_overlap',
+            #lambda r: r['train_data'] == 'QQP-wang-train',
+            #lambda r: r['test_data'] == 'QQP-paws-dev_and_test',
+            lambda r: r['train_data'] == 'MNLI-hans-train-train',
+            lambda r: r['test_data'] == 'MNLI-hans-dev_and_test',
+            #lambda r: r['test_data'] == 'QQP-wang-train_same_bow',
             #lambda r: r['train_data'] == 'SNLI',
             #lambda r: not r['test_data'].endswith('mismatched'),
             #lambda r: r['model'] in ('BERT',),
-            lambda r: r['rm_overlap'] == 0.064 and r['rm_random'] == 0,
+            #lambda r: r['rm_overlap'] == 0.0 and r['rm_random'] == 0,
             #lambda r: r['rm_overlap'] != 0,
             #lambda r: r['model'] in ('ESIM','HYPO', 'CBOW', 'HAND'),
             #lambda r: r['model'] in ('HYPO', 'CBOW', 'HAND'),
@@ -313,7 +338,7 @@ def main(args):
     columns = [
                ('test_data', 30, 's'),
                ('model', 10, 's'),
-               #('train_data', 30, 's'),
+               ('train_data', 20, 's'),
                #('tch', 6, '.1f'),
                #('mch', 6, '.1f'),
                #('rm_ch', 6, '.1f'),
@@ -363,6 +388,22 @@ def main(args):
     #if 'prev_acc' in all_res[0]:
     #    columns.append(('prev_val_acc', 10, '.2f'))
     all_res = sorted(all_res, key=lambda x: [x[c[0]] for c in columns])
+
+    paths = set()
+    duplicated_paths = []
+    for i, r in enumerate(all_res):
+        f = r['eval_path']
+        k = r['model_path'] + r['test_data']
+        if k in paths:
+            duplicated_paths.append(f)
+            print(f)
+        else:
+            paths.add(k)
+    ans = input('remove duplicated paths? [Y/N]')
+    if ans == 'Y':
+        for f in duplicated_paths:
+            shutil.rmtree(os.path.dirname(f))
+    import sys; sys.exit()
 
     column_names = [c[0] for c in columns]
 
@@ -437,18 +478,6 @@ def main(args):
     header = header.format(*[c[0] for c in columns])
     row_format = ''.join(['{{{c}:<{w}{f}}}'.format(c=name, w=width, f=form)
                           for name, width, form in columns])
-
-    #duplicated_paths = []
-    #for i, r in enumerate(all_res):
-    #    if i > 0 and r['model_path'] == all_res[i-1]['model_path']:
-    #        f = r['eval_path']
-    #        duplicated_paths.append(f)
-    #        print(f)
-    #ans = input('remove duplicated paths? [Y/N]')
-    #if ans == 'Y':
-    #    for f in duplicated_paths:
-    #        shutil.rmtree(os.path.dirname(f))
-    #import sys; sys.exit()
 
     #to_delete = [r['eval_path'] for r in all_res]
     #for p in to_delete:

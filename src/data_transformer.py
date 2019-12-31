@@ -14,6 +14,42 @@ from .tokenizer import BasicTokenizer
 
 logger = logging.getLogger('nli')
 
+class ParaOverlapSampler(Sampler):
+    """Sort non-paraphrase examples by the jaccard similarity in ascending order.
+    Remove low similarity ones.
+    """
+    def __init__(self, dataset, num_remove):
+        self.dataset = dataset
+        if num_remove < 1.:
+            num_remove = int(len(self.dataset) * num_remove)
+        if num_remove > len(self.dataset):
+            logger.warning('asked to remove more examples than the dataset size ({} clipped to {}).'.format(num_remove, len(self.dataset)))
+            num_remove = len(self.dataset)
+        self.tokenizer = BasicTokenizer(do_lower_case=True)
+        np_indices = [i for i, e in enumerate(self.dataset) if e[-1] != '1']
+        logger.info('sorting non-paraphrase examples by jaccard similarity between two sentences')
+        np_overlap = [self.compute_overlap(self.dataset[i]) for i in np_indices]
+        logger.info('average NE overlap: {:.4f}'.format(np.mean(np_overlap)))
+        buckets = [0, 0.2, 0.4, 0.6, 0.8, 1]
+        logger.info('histograms of similarity: {}'.format(np.histogram(np_overlap, bins=buckets)))
+
+        sorted_np_indices = [np_indices[i] for i in np.argsort(np_overlap).tolist()]
+        remove_indices = set(sorted_np_indices[:num_remove])
+        self.indices = [i for i in range(len(dataset)) if not i in remove_indices]
+
+    def compute_overlap(self, example):
+        id_, s1, s2, label = example
+        s1_tokens = set(self.tokenizer.tokenize(s1))
+        s2_tokens = set(self.tokenizer.tokenize(s2))
+        overlap = len(s1_tokens.intersection(s2_tokens)) / len(s1_tokens.union(s2_tokens))
+        return overlap
+
+    def __iter__(self):
+        return iter(self.indices)
+
+    def __len__(self):
+        return len(self.indices)
+
 class NLIOverlapSampler(Sampler):
     """Sort non-entailment examples by the amount of overlap in descending order.
     Remove highly overlapping ones.

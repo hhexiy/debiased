@@ -187,7 +187,7 @@ class QQPWangDataset(QQPDataset):
                  segment='train',
                  root=os.path.join(os.getenv('GLUE_DIR', 'glue_data'), 'QQP-wang'),
                  max_num_examples=-1):
-        self._supported_segments = ['train', 'dev', 'test', 'train_same_bow']
+        self._supported_segments = ['train', 'dev', 'test', 'train_same_bow', 'train_no_noise']
         assert segment in self._supported_segments, 'Unsupported segment: %s' % segment
         path = os.path.join(root, '%s.tsv' % segment)
         A_IDX, B_IDX, LABEL_IDX = 3, 4, 5
@@ -675,7 +675,7 @@ class MNLIHansDataset(MNLIDataset):
                  root=os.path.join(os.getenv('GLUE_DIR', 'glue_data'),
                                    'MNLI-hans'),
                  max_num_examples=-1):  #pylint: disable=c0330
-        self._supported_segments = [segment for segment in ('lexical_overlap', 'constituent', 'subsequence')]
+        self._supported_segments = [segment for segment in ('lexical_overlap', 'constituent', 'subsequence', 'train', 'dev_and_test')]
         assert segment in self._supported_segments, 'Unsupported segment: %s' % segment
 
         path = glob.glob(os.path.join(root, '{}.tsv'.format(segment)))
@@ -698,6 +698,35 @@ class MNLIHansDataset(MNLIDataset):
         # 0, 1, 2, 3 = ['neutral', 'entailment', 'contradiction', 'non-entailment']
         return MappedAccuracy(label_map={0: 3, 2: 3})
 
+
+class MNLIHansTrainDataset(MNLIDataset):
+    """HANS used for training.
+    """
+    def __init__(self,
+                 segment='train',
+                 root=os.path.join(os.getenv('GLUE_DIR', 'glue_data'),
+                                   'MNLI-hans'),
+                 max_num_examples=-1):  #pylint: disable=c0330
+        self._supported_segments = [segment for segment in ('train', 'dev_and_test')]
+        assert segment in self._supported_segments, 'Unsupported segment: %s' % segment
+
+        path = glob.glob(os.path.join(root, '{}.tsv'.format(segment)))
+        A_IDX, B_IDX, LABEL_IDX = 5, 6, 0
+
+        fields = [A_IDX, B_IDX, LABEL_IDX]
+        super(MNLIDataset, self).__init__(
+            path, num_discard_samples=1, fields=fields, label_field=2, max_num_examples=max_num_examples)
+
+    @classmethod
+    def get_labels(cls):
+        """Get classification label ids of the dataset."""
+        labels = ['non-entailment', 'entailment']
+        return labels
+
+    @staticmethod
+    def get_metric():
+        """Get metrics Accuracy"""
+        return Accuracy()
 
 class MNLIStressTestDataset(MNLIDataset):
     def __init__(self,

@@ -1,5 +1,5 @@
 from .dataset import SNLIDataset, MNLIDataset, \
-    SNLIHaohanDataset, MNLIStressTestDataset, MNLIHansDataset, MNLILenDataset, \
+    SNLIHaohanDataset, MNLIStressTestDataset, MNLIHansDataset, MNLIHansTrainDataset,  MNLILenDataset, \
     SNLIBreakDataset, SNLISwapDataset, MNLISwapDataset, SICKDataset, \
     QQPWangDataset, QQPPawsDataset, WikiPawsDataset, MNLINoSubsetDataset
 
@@ -7,6 +7,7 @@ tasks = {
     'MNLI': MNLIDataset,
     'MNLI-stress': MNLIStressTestDataset,
     'MNLI-hans': MNLIHansDataset,
+    'MNLI-hans-train': MNLIHansTrainDataset,
     'MNLI-length': MNLILenDataset,
     'MNLI-no-subset': MNLINoSubsetDataset,
     'SNLI': SNLIDataset,

@@ -28,9 +28,10 @@ from .model.esim import ESIMClassifier
 from .data_transformer import BERTDatasetTransform, MaskedBERTDatasetTransform, \
     NLIHypothesisTransform, SNLICheatTransform, SNLIWordDropTransform, \
     CBOWTransform, NLIHandcraftedTransform, DATransform, ESIMTransform, \
-    NLIOverlapSampler, RandomSampler
+    NLIOverlapSampler, RandomSampler, ParaOverlapSampler
 from .utils import *
 from .task import tasks
+from .dataset import QQPWangDataset
 from .tokenizer import SNLITokenizer, BasicTokenizer
 
 logger = logging.getLogger('nli')
@@ -156,8 +157,13 @@ class NLIRunner(Runner):
 
         if remove_overlap > 0:
             remove_overlap = self._clip_size(len(dataset), remove_overlap)
-            dataset = dataset.sample(NLIOverlapSampler(dataset, remove_overlap))
-            logger.info('after remove {} high overlapping examples: {}'.format(remove_overlap, len(dataset)))
+            # TODO: hack
+            if type(self.task) == type(QQPWangDataset):
+                dataset = dataset.sample(ParaOverlapSampler(dataset, remove_overlap))
+                logger.info('after remove {} low overlapping examples: {}'.format(remove_overlap, len(dataset)))
+            else:
+                dataset = dataset.sample(NLIOverlapSampler(dataset, remove_overlap))
+                logger.info('after remove {} high overlapping examples: {}'.format(remove_overlap, len(dataset)))
         if remove_random > 0:
             remove_random = self._clip_size(len(dataset), remove_random)
             dataset = dataset.sample(RandomSampler(len(dataset) - remove_random))
@@ -175,7 +181,8 @@ class NLIRunner(Runner):
 
     def run_train(self, args, ctx):
         train_dataset = self.preprocess_dataset(args.train_split, args.cheat, args.remove_cheat, args.remove, args.max_num_examples, args.remove_overlap, args.remove_random, ctx)
-        dev_dataset = self.preprocess_dataset(args.test_split, args.cheat, args.remove_cheat, args.remove, args.max_num_examples, args.remove_overlap, args.remove_random, ctx)
+        #dev_dataset = self.preprocess_dataset(args.test_split, args.cheat, args.remove_cheat, args.remove, args.max_num_examples, args.remove_overlap, args.remove_random, ctx)
+        dev_dataset = self.preprocess_dataset(args.test_split, args.cheat, args.remove_cheat, args.remove, args.max_num_examples, 0, 0, ctx)
 
         if args.init_from:
             model, vocab = self.load_model(args, args, args.init_from, ctx)
